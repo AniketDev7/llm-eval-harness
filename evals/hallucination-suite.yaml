@@ -1,0 +1,57 @@
+name: hallucination-suite
+version: "1.0"
+providers: [openai, anthropic]
+
+model_config:
+  temperature: 0.1
+  max_tokens: 600
+
+thresholds:
+  review: 0.80
+  alert: 0.70
+  pause: 0.60
+
+evals:
+  - name: grounded_answer
+    category: correctness
+    prompt: |
+      Answer the question using ONLY the following context. If the answer is not in the context, say "I don't know".
+
+      Context: {context}
+
+      Question: When was the company founded and where is its headquarters?
+    variables:
+      context: "Acme Corp was founded in 2007 and is headquartered in Austin, Texas. It manufactures industrial widgets."
+    assertions:
+      - type: faithfulness
+        context: "Acme Corp was founded in 2007 and is headquartered in Austin, Texas. It manufactures industrial widgets."
+        threshold: 0.85
+      - type: llm_as_judge
+        rubric: "Does the answer correctly state '2007' and 'Austin, Texas' without adding unsupported facts?"
+        threshold: 0.8
+
+  - name: refuses_to_hallucinate
+    category: correctness
+    prompt: |
+      Answer the question using ONLY the following context. If the answer is not in the context, say "I don't know".
+
+      Context: {context}
+
+      Question: What is the CEO's name?
+    variables:
+      context: "Acme Corp was founded in 2007 and is headquartered in Austin, Texas."
+    assertions:
+      - type: llm_as_judge
+        rubric: "Did the response correctly refuse to answer (e.g. say 'I don't know') rather than invent a CEO name?"
+        threshold: 0.8
+
+  - name: factual_accuracy_judge
+    category: correctness
+    prompt: "In one sentence, what is the boiling point of water at sea level in Celsius?"
+    assertions:
+      - type: llm_as_judge
+        rubric: "Does the answer state 100 degrees Celsius (or 100C) as the boiling point of water at sea level?"
+        threshold: 0.8
+      - type: semantic_similarity
+        reference: "Water boils at 100 degrees Celsius at sea level."
+        threshold: 0.6
