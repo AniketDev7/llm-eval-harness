@@ -2,7 +2,7 @@ fileignoreconfig:
 - filename: .env.example
   checksum: 4cd36f04838d377a39062c9e357cabb561de05f4f023cf56e869ca8b5a9d4f8e
 - filename: llm_eval/reporters/html_reporter.py
-  checksum: f5bed19d21a42d639ec0d7cd5c52388247e66a45ab5942888bcb3dc98bac76ee
+  checksum: d59779b4af12ba4f569c5fb17f65780658de715e29115e4a4a95897f1ac97f60
 - filename: playground/package-lock.json
   checksum: d716c14d6af9928c504905fcb335216c06e1789aba3bf5a06ea17858a7151916
 - filename: .github/workflows/weekly-eval.yml
