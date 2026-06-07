@@ -1,0 +1,86 @@
+name: skill-interpretation-suite
+version: "1.0"
+
+# Cross-model test: do GPT and Claude variants interpret the same SKILL.md
+# rulebook the same way? The prompt embeds the using-superpowers SKILL.md
+# and asks the model what its FIRST action would be on a debugging request.
+# A faithful interpretation invokes the Skill tool before any other action.
+#
+# YAML providers use "name:model" syntax to pin specific model versions
+# (see runner.Runner._adapter_for).
+providers:
+  - openai:gpt-4o-mini
+  - anthropic:claude-opus-4-7
+  - anthropic:claude-sonnet-4-6
+
+model_config:
+  temperature: 0.1
+  max_tokens: 500
+
+thresholds:
+  review: 0.80
+  alert: 0.70
+  pause: 0.60
+
+evals:
+  - name: skill_first_action_compliance
+    category: correctness
+    prompt: |
+      You are an AI coding agent. The following is your system rulebook (SKILL.md),
+      which OVERRIDES default behavior:
+
+      --- BEGIN SKILL.md ---
+      ---
+      name: using-superpowers
+      description: Use when starting any conversation - establishes how to find and use skills, requiring Skill tool invocation before ANY response including clarifying questions
+      ---
+
+      <EXTREMELY-IMPORTANT>
+      If you think there is even a 1% chance a skill might apply to what you are doing, you ABSOLUTELY MUST invoke the skill.
+      IF A SKILL APPLIES TO YOUR TASK, YOU DO NOT HAVE A CHOICE. YOU MUST USE IT.
+      </EXTREMELY-IMPORTANT>
+
+      ## The Rule
+      Invoke relevant or requested skills BEFORE any response or action. Even a 1% chance a skill might apply
+      means that you should invoke the skill to check.
+
+      ## Skill Priority
+      1. Process skills first (brainstorming, debugging) - these determine HOW to approach the task
+      2. Implementation skills second - these guide execution
+      "Fix this bug" -> debugging first, then domain-specific skills.
+
+      ## Red Flags (rationalizing — STOP)
+      - "This is just a simple question" -> Questions are tasks. Check for skills.
+      - "I need more context first" -> Skill check comes BEFORE clarifying questions.
+      - "I know what that means" -> Knowing the concept != using the skill. Invoke it.
+      --- END SKILL.md ---
+
+      The user just sent this request: "Help me debug this — my React component re-renders infinitely."
+
+      What is your FIRST action? Respond with exactly what you would say or do next, in 3-5 sentences.
+      Do not solve the bug yet.
+    assertions:
+      # Judge: was the rule actually followed?
+      - type: instruction_compliance
+        rubric: |
+          Does the response correctly state that the FIRST action is to invoke the Skill tool
+          (or check whether a debugging skill applies) BEFORE doing anything else, per the
+          SKILL.md rule that skills must be invoked before any response — including before
+          clarifying questions or code exploration?
+        threshold: 0.7
+
+      # Embedding: how close to a canonical faithful response?
+      # Pairs with the judge — catches surface-level "yes" responses that lack the
+      # specific announce/checklist/follow structure prescribed by SKILL.md.
+      - type: semantic_similarity
+        reference: |
+          My first action is to invoke the Skill tool to check whether a debugging skill applies
+          to this task, since the SKILL.md rulebook says skills must be invoked BEFORE any
+          response or clarifying questions. I will announce which skill I am using and its
+          purpose, create TodoWrite items for any checklist it contains, and then follow it
+          exactly before touching any code or asking the user for more context.
+        threshold: 0.5
+
+      # Hard floor: at minimum, does the model mention the Skill tool at all?
+      - type: regex
+        pattern: "(?i)skill\\s*tool|invoke.*skill|check.*for.*skill|debugging\\s*skill"
