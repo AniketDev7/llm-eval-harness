@@ -49,6 +49,8 @@ def run(
     provider: Optional[str] = typer.Option(None, "--provider", help="Override providers list with a single provider."),
     json_out: bool = typer.Option(False, "--json", help="Also write JSON report."),
     html_out: bool = typer.Option(False, "--html", help="Also write HTML report."),
+    workers: int = typer.Option(1, "--workers", min=1, help="Run cases concurrently with N workers."),
+    max_usd: float = typer.Option(0.0, "--max-usd", min=0.0, help="Budget cap in USD; stop launching cases once reached (0 = uncapped)."),
 ) -> None:
     """Run an eval suite end-to-end."""
     path = Path(suite)
@@ -60,7 +62,7 @@ def run(
     if provider:
         eval_suite.providers = [provider]
 
-    runner = Runner(eval_suite)
+    runner = Runner(eval_suite, workers=workers, max_usd=max_usd)
     init_db()
 
     console.print(f"[cyan]Running suite[/cyan] {eval_suite.name} v{eval_suite.version}...")
@@ -70,7 +72,7 @@ def run(
     status_order = {"PASS": 0, "REVIEW": 1, "ALERT": 2, "PAUSE": 3}
     for rec in records:
         save_run(rec)
-        drift = check_drift(rec.suite_name, rec.provider)
+        drift = check_drift(rec.suite_name, rec.provider, rec.model)
         print_run(rec, drift=drift)
         if status_order[rec.threshold_status] > status_order[worst_status]:
             worst_status = rec.threshold_status
@@ -80,6 +82,10 @@ def run(
         if html_out:
             p = write_html(rec)
             console.print(f"  HTML: {p}")
+
+    if runner.guard.capped or runner.guard.blocked():
+        color = "yellow" if runner.guard.blocked() else "cyan"
+        console.print(f"  [{color}]Budget:[/{color}] {runner.guard.summary()}")
 
     if ci and worst_status != "PASS":
         console.print(f"[red]CI mode: exiting non-zero (status={worst_status})[/red]")
@@ -121,10 +127,12 @@ def baseline_show(
 def drift_check(
     suite_name: str = typer.Argument(...),
     provider: str = typer.Argument(...),
+    model: Optional[str] = typer.Option(None, "--model", help="Scope drift to a specific model version."),
 ) -> None:
-    report = check_drift(suite_name, provider)
+    report = check_drift(suite_name, provider, model)
     color = "red" if report.alert else "green"
-    console.print(f"[bold]{report.suite_name}/{report.provider}[/bold]")
+    label = f"{report.suite_name}/{report.provider}" + (f"/{report.model}" if report.model else "")
+    console.print(f"[bold]{label}[/bold]")
     console.print(f"  Baseline: {report.baseline_score}")
     console.print(f"  Recent:   {report.recent_scores}")
     console.print(f"  Trend:    {report.trend}")
@@ -260,6 +268,54 @@ def mcp_run(
     )
     if ci and (record.threshold_status != "PASS" or has_failed_assertion):
         raise typer.Exit(code=1)
+
+
+@mcp_app.command("generate")
+def mcp_generate(
+    out_dir: str = typer.Option("generated-scenarios", "--out", help="Directory to write scaffolded scenario YAMLs."),
+    depth: int = typer.Option(2, "--depth", min=1, help="Representatives per capability class."),
+    command: Optional[str] = typer.Option(None, "--command", help="Server command (default: bundled fixture)."),
+    args: Optional[str] = typer.Option(None, "--args", help="Space-separated server args (with --command)."),
+    allow_external_server: bool = typer.Option(
+        False, "--allow-external-server",
+        help="Permit a non-bundled server command.",
+    ),
+) -> None:
+    """Introspect an MCP server and scaffold class-representative scenarios."""
+    import asyncio
+
+    from llm_eval.mcp_support.executor import MCPServerConfig
+    from llm_eval.mcp_support.generate import discover_tools, scaffold_scenarios, write_scaffolds
+
+    if command and command != "{python}" and not allow_external_server:
+        console.print("[red]Refusing external server command without --allow-external-server[/red]")
+        raise typer.Exit(code=2)
+
+    if command:
+        server = MCPServerConfig(command=command, args=(args or "").split())
+    else:
+        server = MCPServerConfig(
+            command="{python}",
+            args=["-m", "llm_eval.mcp_support.fixtures.workspace_server"],
+        )
+
+    try:
+        tools = asyncio.run(discover_tools(server))
+    except Exception as exc:  # noqa: BLE001
+        console.print(f"[red]Failed to introspect server:[/red] {exc}")
+        raise typer.Exit(code=2) from exc
+
+    if not tools:
+        console.print("[yellow]Server advertised no tools.[/yellow]")
+        raise typer.Exit(code=1)
+
+    scenarios = scaffold_scenarios(server, tools, depth=depth)
+    written = write_scaffolds(scenarios, out_dir)
+    console.print(
+        f"[green]Scaffolded {len(written)} scenario(s)[/green] from {len(tools)} tool(s) into {out_dir}/"
+    )
+    for path in written:
+        console.print(f"  {path}")
 
 
 @app.command()

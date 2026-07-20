@@ -84,6 +84,7 @@ def _record_from_results(run_row: dict, results: list[EvalResult]) -> RunRecord:
         suite_name=run_row["suite_name"],
         suite_version=run_row["suite_version"],
         provider=run_row["provider"],
+        model=run_row.get("model", ""),
         composite_score=run_row["composite_score"],
         coverage_score=run_row["coverage_score"],
         accuracy_score=run_row["accuracy_score"],

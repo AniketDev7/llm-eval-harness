@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -10,6 +11,7 @@ import yaml
 
 from llm_eval.adapters.base import BaseAdapter
 from llm_eval.adapters import get_adapter
+from llm_eval.cost import CostGuard, estimate_cost
 from llm_eval.evaluators import REGISTRY
 from llm_eval.models import (
     Assertion, AssertionResult, CompletionResult, EvalCase, EvalResult,
@@ -69,10 +71,20 @@ def parse_suite(data: object) -> EvalSuite:
 class Runner:
     """Executes an EvalSuite against one or more providers."""
 
-    def __init__(self, suite: EvalSuite, adapters: Optional[dict[str, BaseAdapter]] = None):
+    def __init__(
+        self,
+        suite: EvalSuite,
+        adapters: Optional[dict[str, BaseAdapter]] = None,
+        *,
+        workers: int = 1,
+        max_usd: float = 0.0,
+    ):
         self.suite = suite
         # Adapters can be injected (handy for tests). Otherwise lazy-created.
         self.adapters = adapters or {}
+        self.workers = max(1, int(workers))
+        # Guard is shared across providers so the cap covers total run spend.
+        self.guard = CostGuard(max_usd=max(0.0, max_usd))
 
     def _adapter_for(self, provider: str) -> BaseAdapter:
         """Resolve an adapter for a provider string.
@@ -137,54 +149,77 @@ class Runner:
             records.append(record)
         return records
 
+    def _run_case(self, provider: str, adapter: BaseAdapter, case: EvalCase) -> EvalResult:
+        prompt = self._render_prompt(case)
+
+        completions: list[CompletionResult] = []
+        for _ in range(case.runs):
+            completions.append(adapter.complete(prompt, self.suite.model_config_settings))
+
+        all_response_texts = [c.text for c in completions]
+        # For non-consistency cases we evaluate against the first completion.
+        primary = completions[0]
+
+        completion_errors = [c.error for c in completions if c.error]
+        if completion_errors:
+            # Infrastructure failures are not model output and must never be
+            # allowed to satisfy assertions such as max_length on an empty string.
+            assertion_results = [AssertionResult(
+                type="provider_error",
+                passed=False,
+                score=0.0,
+                detail="; ".join(completion_errors),
+            )]
+        else:
+            assertion_results = self._run_assertions(
+                case.assertions, primary, case, all_response_texts,
+            )
+
+        return EvalResult(
+            eval_name=case.name,
+            category=case.category,
+            provider=provider,
+            prompt=prompt,
+            response=primary.text,
+            latency_ms=primary.latency_ms,
+            tokens_used=primary.tokens_used,
+            model_version=primary.model_version,
+            completions=completions,
+            assertions=assertion_results,
+            error=primary.error,
+        )
+
+    def _charge(self, result: EvalResult) -> None:
+        for comp in result.completions:
+            self.guard.add(estimate_cost(comp.model_version, comp.tokens_used))
+
     def _run_for_provider(self, provider: str) -> RunRecord:
         adapter = self._adapter_for(provider)
         eval_results: list[EvalResult] = []
 
-        for case in self.suite.evals:
-            prompt = self._render_prompt(case)
-            n_runs = case.runs
-
-            completions: list[CompletionResult] = []
-            for _ in range(n_runs):
-                completion = adapter.complete(prompt, self.suite.model_config_settings)
-                completions.append(completion)
-
-            all_response_texts = [c.text for c in completions]
-            # For non-consistency cases we evaluate against the first completion.
-            primary = completions[0]
-
-            completion_errors = [c.error for c in completions if c.error]
-            if completion_errors:
-                # Infrastructure failures are not model output and must never be
-                # allowed to satisfy assertions such as max_length on an empty string.
-                assertion_results = [AssertionResult(
-                    type="provider_error",
-                    passed=False,
-                    score=0.0,
-                    detail="; ".join(completion_errors),
-                )]
+        cases = self.suite.evals
+        idx = 0
+        while idx < len(cases):
+            if self.guard.exceeded():
+                self.guard.note_blocked(len(cases) - idx)
+                break
+            batch = cases[idx:idx + self.workers]
+            if self.workers == 1:
+                batch_results = [self._run_case(provider, adapter, batch[0])]
             else:
-                assertion_results = self._run_assertions(
-                    case.assertions, primary, case, all_response_texts,
-                )
-
-            eval_results.append(EvalResult(
-                eval_name=case.name,
-                category=case.category,
-                provider=provider,
-                prompt=prompt,
-                response=primary.text,
-                latency_ms=primary.latency_ms,
-                tokens_used=primary.tokens_used,
-                model_version=primary.model_version,
-                completions=completions,
-                assertions=assertion_results,
-                error=primary.error,
-            ))
+                with ThreadPoolExecutor(max_workers=self.workers) as pool:
+                    batch_results = list(pool.map(
+                        lambda c: self._run_case(provider, adapter, c), batch,
+                    ))
+            for result in batch_results:
+                eval_results.append(result)
+                self._charge(result)
+            idx += len(batch)
 
         scores = score_run(eval_results)
         status = evaluate_threshold(scores["composite"], self.suite.thresholds)
+
+        model = next((r.model_version for r in eval_results if r.model_version), "")
 
         return RunRecord(
             id=str(uuid.uuid4()),
@@ -192,6 +227,7 @@ class Runner:
             suite_name=self.suite.name,
             suite_version=self.suite.version,
             provider=provider,
+            model=model,
             composite_score=scores["composite"],
             coverage_score=scores["coverage"],
             accuracy_score=scores["accuracy"],

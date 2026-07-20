@@ -2,7 +2,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-73%2F73%20passing-brightgreen.svg)](#running-tests)
+[![Tests](https://img.shields.io/badge/tests-114%2F114%20passing-brightgreen.svg)](#running-tests)
 
 **Developer-first AI quality gates** for LLM outputs, safety guardrails, tool calls, and agent trajectories across multiple providers.
 
@@ -22,12 +22,16 @@ The same prompt can produce a slightly different response on every run—and bot
 
 - **Multi-provider, multi-model.** Compare GPT-4o vs GPT-5.5 vs Claude Opus 4.7 vs Claude Sonnet 4.6 on the same prompt — side by side, in the UI or in YAML.
 - **Fail-closed quality gates.** Provider and judge outages produce an explicit failed run; infrastructure errors cannot become a false PASS.
-- **First-class guardrails.** Classified suites cover prompt injection, jailbreaks, PII leakage, tool permissions, system-prompt leakage, and role escalation.
-- **Agent trajectory checks.** Validate tool selection, argument schemas, call order, confirmation, recovery, completion, and tool budgets.
-- **Executable MCP security fixture.** A fake enterprise workspace exercises indirect injection, poisoned tool metadata, confirmation bypass, tenant isolation, and exfiltration without touching real systems.
+- **First-class guardrails.** Classified suites cover prompt injection, jailbreaks, PII leakage, tool permissions, system-prompt leakage, role escalation, and hallucination refusal.
+- **Agent trajectory checks.** Validate tool selection, argument schemas (or subset + predicate matching), call order, confirmation, recovery, completion, and tool budgets.
+- **Executable MCP security fixture.** A fake enterprise workspace exercises indirect injection, poisoned tool metadata, confirmation bypass, tenant isolation, exfiltration, and self-cleaning write flows without touching real systems.
+- **RAGAS / DeepEval-style scorers.** Claim-decomposition faithfulness, tool-correctness (with predicate matching), and outcome-based task completion — pure functions with an injectable judge (see [`llm_eval/metrics.py`](llm_eval/metrics.py)).
+- **Budget circuit breaker.** `--max-usd` caps total run spend; the runner stops launching new cases once the cap is reached and reports a clean partial run instead of overspending.
+- **Parallel execution + prompt caching.** `--workers N` runs cases concurrently; the Anthropic adapter caches large prompt blocks so repeated prompts bill at the cache-read rate.
+- **Capability-class case scaffolding.** `mcp generate` introspects a server's tool list, classifies each tool into one of eight capability classes, and scaffolds representative scenario YAML.
 - **Hybrid faithfulness scoring.** Combines LLM-as-judge with embedding-grounding against source context to catch plausible-sounding hallucinations that fool the judge alone (see [Design Decisions](#design-decisions)).
 - **Schema-driven assertion editor in the playground.** Pick `faithfulness` and the UI auto-renders the right typed inputs (context textarea + threshold) — no JSON memorization.
-- **Score drift monitoring.** Baseline capture, recent-score trends, and assertion-level baseline comparisons.
+- **Per-(provider, model) drift monitoring.** Baselines are keyed by model, so a regression in one model is never masked by an improvement in another. Recent-score trends and assertion-level baseline comparisons included.
 - **Lossless SQLite audit trail.** Stores model identity, provider errors, every repeated completion, tool calls, and agent steps.
 - **Release risk scoring.** Severity-weighted findings convert failed safety checks into a 0–100 risk score.
 - **CI-ready.** The `--ci` flag exits non-zero on threshold breaches for use in any CI system.
@@ -138,7 +142,7 @@ Every assertion targets a specific LLM failure mode. The taxonomy below maps eac
 |---|---|
 | `tool_selected` | Required tool was selected |
 | `tool_not_called` | Forbidden or unauthorized tool was not selected |
-| `tool_arguments` | Tool arguments match a JSON Schema |
+| `tool_arguments` | Tool arguments match a JSON Schema (`schema:`) **or** an `expected:` subset with literal values and declarative predicates (`pattern`, `one_of`, `type`, `contains`, `gt`/`lt`/`gte`/`lte`) |
 | `tool_call_order` | Tools were invoked in the expected sequence |
 | `requires_confirmation` | A sensitive tool call was preceded by confirmed approval |
 | `max_tool_calls` | Agent stayed within its tool-call budget |
@@ -288,11 +292,14 @@ python3 -m llm_eval.cli run evals/my-suite.yaml
 python3 -m llm_eval.cli run evals/my-suite.yaml --ci
 python3 -m llm_eval.cli run evals/my-suite.yaml --provider openai
 python3 -m llm_eval.cli run evals/my-suite.yaml --html
+python3 -m llm_eval.cli run evals/my-suite.yaml --workers 4      # run cases concurrently
+python3 -m llm_eval.cli run evals/my-suite.yaml --max-usd 2.00   # stop launching cases once spend hits the cap
 
-# Baseline and drift detection
+# Baseline and drift detection (baselines are keyed by provider AND model)
 python3 -m llm_eval.cli baseline save evals/my-suite.yaml
 python3 -m llm_eval.cli baseline show my-suite openai
 python3 -m llm_eval.cli drift check my-suite openai
+python3 -m llm_eval.cli drift check my-suite anthropic --model claude-haiku-4-5-20251001
 
 # Security guardrails
 python3 -m llm_eval.cli guardrails run guardrails/prompt-injection.yaml --ci
@@ -303,6 +310,9 @@ python3 -m llm_eval.cli regression compare <baseline-run-id> <candidate-run-id> 
 
 # Execute a real local MCP stdio scenario
 python3 -m llm_eval.cli mcp run examples/vulnerable_workspace_mcp/suites/tenant-isolation.yaml --ci
+
+# Scaffold scenarios from a server's live tool list (bundled fixture by default)
+python3 -m llm_eval.cli mcp generate --out generated-scenarios --depth 2
 
 # Reports
 python3 -m llm_eval.cli report
@@ -331,6 +341,29 @@ Secure scenarios should pass and report attempted operations as blocked. The
 prove that the harness detects successful unsafe behavior. Scenario runs are
 stored in SQLite and can be exported with
 `python3 -m llm_eval.cli report --run-id <id>`.
+
+Scenarios support optional `setup:` and `teardown:` call phases around the graded
+`calls:`. Only the graded calls contribute to assertion matching; setup and
+teardown run for their side effects (and teardown always runs, even if a graded
+call fails), so a create → assert → delete flow leaves the fixture clean. See
+[`self-cleaning-write.yaml`](examples/vulnerable_workspace_mcp/suites/self-cleaning-write.yaml).
+
+Large tool results are truncated in the trace at `LLM_EVAL_TOOL_RESULT_CAP`
+characters (default 400,000) so an oversized payload can't blow up downstream
+context or the audit database.
+
+### Run Tiers
+
+A `Makefile` bundles progressive run tiers, each with an explicit USD budget cap:
+
+```bash
+make test-unit   # fast pure-function unit tests, no API keys
+make smoke       # quickstart suite, capped at $0.10 — a cheap PR gate
+make nightly     # all eval suites, 4 workers, capped at $2.00
+make release     # all suites + guardrails + MCP scenarios, capped at $5.00
+make safety      # guardrail suites only, capped at $0.50
+make baseline    # nightly scope, then save each result as a baseline
+```
 
 ---
 
@@ -397,23 +430,27 @@ npm run dev     # Vite on :5173 proxies /api to the API on :8000
 ```
 llm-eval-harness/
 ├── llm_eval/
-│   ├── adapters/          # BaseAdapter + OpenAI + Anthropic (pluggable pattern)
+│   ├── adapters/          # BaseAdapter + OpenAI + Anthropic (pluggable; prompt caching)
 │   ├── evaluators/        # Output, safety, operational, and agent assertions
 │   ├── guardrails/        # Classified security-suite orchestration
 │   ├── quality/           # Risk scoring + assertion regression comparison
-│   ├── runner/            # YAML loader + eval orchestrator
+│   ├── runner/            # YAML loader + eval orchestrator (workers + budget guard)
 │   ├── scorer/            # Weighted composite scoring (40/30/20/10)
 │   ├── reporters/         # Terminal, JSON, eval HTML, and pytest HTML reports
-│   ├── drift/             # Baseline score and trend monitoring
+│   ├── drift/             # Per-(provider, model) baseline score and trend monitoring
 │   ├── storage/           # SQLite lossless audit trail
-│   ├── mcp_support/       # MCP scenario executor + fake workspace fixture
+│   ├── mcp_support/       # MCP executor (phased), fixture, case classes, generator
 │   ├── api/               # FastAPI REST API + SPA fallback
+│   ├── cost.py            # Budget circuit breaker + token/USD estimation
+│   ├── judge.py           # Single-shot judge primitive + JSON extraction
+│   ├── metrics.py         # RAGAS/DeepEval scorers (injectable judge)
 │   └── cli.py             # Typer CLI (llm-eval)
 ├── playground/            # React 18 + Vite + Tailwind UI
 ├── evals/                 # Example YAML suites
-├── guardrails/            # Six bundled security suites
+├── guardrails/            # Seven bundled security suites
 ├── examples/
 │   └── vulnerable_workspace_mcp/ # Fake-data MCP server + adversarial scenarios
+├── Makefile               # Progressive run tiers with budget caps
 └── tests/                 # pytest unit + integration tests
 ```
 
@@ -461,6 +498,26 @@ judge score and a per-sentence embedding-grounding score, then returns the lower
 value. The assertion detail surfaces both subscores for diagnosis. If embedding
 grounding cannot run, it records that failure and falls back to the judge score;
 judge infrastructure errors fail the assertion.
+
+**Why a budget circuit breaker instead of a hard cost limit at the provider?**
+A run against a strong model over many cases can get expensive fast. `--max-usd`
+accumulates estimated spend as cases complete and stops launching *new* cases
+once the cap is reached, then reports a clean partial run. A cap is an intended
+ceiling, not a failure — the run exits normally rather than crashing mid-flight.
+The `CostGuard` is uncapped by default, so existing runs are unaffected.
+
+**Why key baselines by (provider, model) rather than provider alone?**
+When one suite is evaluated across several models, a single per-provider baseline
+averages them together and can hide a regression in one model behind an
+improvement in another. Baselines and the drift window are scoped to the exact
+model version so each model is tracked independently. Older databases are
+migrated automatically by adding the `model` column.
+
+**Why injectable judges in the RAGAS/DeepEval scorers?**
+`metrics.py` scorers (`tool_correctness`, `faithfulness_scored`, `task_completion`)
+take a `judge_fn` rather than importing a provider. That keeps them pure and
+unit-testable with a fake judge, and lets the same scorer run against any
+provider in production via `judge.judge_complete`.
 
 ---
 

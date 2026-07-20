@@ -1,9 +1,62 @@
 """Structured tool-call and agent-trajectory evaluators."""
 from __future__ import annotations
 
+import re
+from typing import Any
+
 import jsonschema
 
 from llm_eval.models import Assertion, AssertionResult, CompletionResult, ToolCall
+
+
+_PREDICATE_KEYS = {"pattern", "one_of", "type", "contains", "equals", "gt", "lt", "gte", "lte"}
+_TYPE_MAP = {
+    "string": str,
+    "integer": int,
+    "number": (int, float),
+    "boolean": bool,
+    "array": list,
+    "object": dict,
+}
+
+
+def _match_arg(actual: Any, spec: Any) -> tuple[bool, str]:
+    """Match one argument value against a literal or a declarative predicate.
+
+    A dict spec whose keys are all predicate keywords (pattern, one_of, type,
+    contains, equals, gt/lt/gte/lte) is treated as a predicate; any other value
+    (including a plain dict) is compared literally.
+    """
+    if isinstance(spec, dict) and spec and set(spec).issubset(_PREDICATE_KEYS):
+        for key, expected in spec.items():
+            if key == "equals":
+                if actual != expected:
+                    return False, f"{actual!r} != {expected!r}"
+            elif key == "pattern":
+                if not isinstance(actual, str) or re.search(str(expected), actual) is None:
+                    return False, f"{actual!r} does not match /{expected}/"
+            elif key == "one_of":
+                if actual not in expected:
+                    return False, f"{actual!r} not in {expected!r}"
+            elif key == "type":
+                py = _TYPE_MAP.get(str(expected))
+                if py is None or not isinstance(actual, py) or (py is int and isinstance(actual, bool)):
+                    return False, f"{actual!r} is not type {expected!r}"
+            elif key == "contains":
+                if not isinstance(actual, (str, list)) or expected not in actual:
+                    return False, f"{actual!r} does not contain {expected!r}"
+            elif key in {"gt", "lt", "gte", "lte"}:
+                try:
+                    ok = {
+                        "gt": actual > expected, "lt": actual < expected,
+                        "gte": actual >= expected, "lte": actual <= expected,
+                    }[key]
+                except TypeError:
+                    return False, f"{actual!r} not comparable to {expected!r}"
+                if not ok:
+                    return False, f"{actual!r} fails {key} {expected!r}"
+        return True, "ok"
+    return (actual == spec), (f"{actual!r} != {spec!r}" if actual != spec else "ok")
 
 
 def _result(assertion: Assertion, passed: bool, detail: str) -> AssertionResult:
@@ -38,18 +91,46 @@ def eval_tool_not_called(assertion: Assertion, result: CompletionResult, context
 
 
 def eval_tool_arguments(assertion: Assertion, result: CompletionResult, context: dict) -> AssertionResult:
+    """Validate a called tool's arguments.
+
+    Three mutually-exclusive modes:
+      * ``schema``   — full JSON Schema validation (original behaviour).
+      * ``expected`` — subset match: every listed arg must be present and match a
+        literal value or a declarative predicate (pattern/one_of/type/...).
+        Extra actual arguments are allowed.
+    """
     name = str(assertion.params.get("name", ""))
     schema = assertion.params.get("schema")
+    expected = assertion.params.get("expected")
     call = next((item for item in _tool_calls(result) if item.name == name), None)
     if call is None:
         return _result(assertion, False, f"Tool {name!r} was not called")
-    if not isinstance(schema, dict):
-        return _result(assertion, False, "tool_arguments requires a JSON schema")
-    try:
-        jsonschema.validate(call.arguments, schema)
-    except jsonschema.ValidationError as exc:
-        return _result(assertion, False, f"Arguments for {name!r} failed schema: {exc.message}")
-    return _result(assertion, True, f"Arguments for {name!r} match schema")
+
+    if isinstance(schema, dict):
+        try:
+            jsonschema.validate(call.arguments, schema)
+        except jsonschema.ValidationError as exc:
+            return _result(assertion, False, f"Arguments for {name!r} failed schema: {exc.message}")
+        return _result(assertion, True, f"Arguments for {name!r} match schema")
+
+    if isinstance(expected, dict):
+        missing: list[str] = []
+        wrong: list[str] = []
+        for key, spec in expected.items():
+            if key not in call.arguments:
+                missing.append(key)
+                continue
+            ok, why = _match_arg(call.arguments[key], spec)
+            if not ok:
+                wrong.append(f"{key}: {why}")
+        if missing or wrong:
+            return _result(
+                assertion, False,
+                f"Arguments for {name!r} mismatch (missing={missing}, wrong={wrong})",
+            )
+        return _result(assertion, True, f"Arguments for {name!r} satisfy expected subset")
+
+    return _result(assertion, False, "tool_arguments requires either 'schema' or 'expected'")
 
 
 def eval_tool_call_order(assertion: Assertion, result: CompletionResult, context: dict) -> AssertionResult:

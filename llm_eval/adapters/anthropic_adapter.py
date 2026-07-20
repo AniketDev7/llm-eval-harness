@@ -33,6 +33,22 @@ class AnthropicAdapter(BaseAdapter):
     def _supports_temperature(self) -> bool:
         return not any(self.model.startswith(m) for m in self._NO_TEMPERATURE_MODELS)
 
+    def _cache_enabled(self) -> bool:
+        """Prompt caching is on by default; opt out with LLM_EVAL_NO_CACHE=1.
+
+        Caching the prompt block lets repeated identical prompts (consistency
+        runs, cases sharing a large fixed prefix) bill at the ~0.1x cache-read
+        rate within the provider's short TTL instead of full input price.
+        """
+        return os.getenv("LLM_EVAL_NO_CACHE", "").strip() not in {"1", "true", "yes"}
+
+    def _build_content(self, prompt: str):
+        # Anthropic requires a cacheable block to be reasonably large; below the
+        # server minimum the cache_control is simply ignored, so gate on length.
+        if self._cache_enabled() and len(prompt) >= 4096:
+            return [{"type": "text", "text": prompt, "cache_control": {"type": "ephemeral"}}]
+        return prompt
+
     def complete(self, prompt: str, config: ModelConfig) -> CompletionResult:
         start = time.time()
 
@@ -42,7 +58,7 @@ class AnthropicAdapter(BaseAdapter):
                 kwargs: dict = {
                     "model": self.model,
                     "max_tokens": config.max_tokens,
-                    "messages": [{"role": "user", "content": prompt}],
+                    "messages": [{"role": "user", "content": self._build_content(prompt)}],
                 }
                 if self._supports_temperature():
                     kwargs["temperature"] = config.temperature

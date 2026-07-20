@@ -11,23 +11,28 @@ DEGRADATION_PCT = 0.10  # 10% drop relative to baseline triggers an alert.
 
 
 def capture_baseline(record: RunRecord) -> None:
-    """Persist this run's scores as the new baseline for its suite/provider."""
+    """Persist this run's scores as the new baseline for its suite/provider/model."""
     save_baseline(record)
 
 
-def check_drift(suite_name: str, provider: str, window: int = 8) -> DriftReport:
+def check_drift(
+    suite_name: str, provider: str,
+    model: str | None = None, window: int = 8,
+) -> DriftReport:
     """Compare baseline vs recent runs to detect score degradation.
 
+    When `model` is given, the baseline and recent-run window are scoped to that
+    (provider, model) pair so a regression in one model is not masked by another.
     `window` is the number of most-recent runs to inspect.
     """
-    baseline = get_baseline(suite_name, provider)
-    runs = list_runs(limit=window, suite_name=suite_name, provider=provider)
+    baseline = get_baseline(suite_name, provider, model)
+    runs = list_runs(limit=window, suite_name=suite_name, provider=provider, model=model)
 
     recent_scores = [float(r["composite_score"]) for r in runs]
 
     if baseline is None:
         return DriftReport(
-            suite_name=suite_name, provider=provider,
+            suite_name=suite_name, provider=provider, model=model or "",
             recent_scores=recent_scores,
             trend="stable",
             alert=False,
@@ -61,7 +66,7 @@ def check_drift(suite_name: str, provider: str, window: int = 8) -> DriftReport:
             )
 
     return DriftReport(
-        suite_name=suite_name, provider=provider,
+        suite_name=suite_name, provider=provider, model=model or "",
         baseline_score=baseline_score,
         recent_scores=recent_scores,
         trend=trend,

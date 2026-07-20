@@ -19,6 +19,7 @@ ATTACK_CLASSES = frozenset({
     "tool_permission",
     "system_prompt_leak",
     "role_escalation",
+    "hallucination",
 })
 SEVERITIES = frozenset({"low", "medium", "high", "critical"})
 

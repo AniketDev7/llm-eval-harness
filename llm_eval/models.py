@@ -122,6 +122,7 @@ class RunRecord(BaseModel):
     suite_name: str
     suite_version: str
     provider: str
+    model: str = ""
     composite_score: float = Field(ge=0.0, le=1.0)
     coverage_score: float = Field(ge=0.0, le=1.0)
     accuracy_score: float = Field(ge=0.0, le=1.0)
@@ -135,6 +136,7 @@ class DriftReport(BaseModel):
     """Drift detection result for a suite/provider."""
     suite_name: str
     provider: str
+    model: str = ""
     baseline_score: Optional[float] = None
     recent_scores: list[float] = Field(default_factory=list)
     trend: str = "stable"  # stable | improving | degrading

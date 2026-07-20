@@ -6,6 +6,7 @@ from llm_eval.mcp_support.executor import (
     MCPServerConfig,
     execute_mcp_plan,
     classify_attack_outcome,
+    classify_skip_reason,
     load_mcp_scenario,
     run_mcp_scenario,
 )
@@ -17,6 +18,7 @@ __all__ = [
     "MCPServerConfig",
     "execute_mcp_plan",
     "classify_attack_outcome",
+    "classify_skip_reason",
     "load_mcp_scenario",
     "run_mcp_scenario",
 ]

@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS runs (
     suite_name TEXT NOT NULL,
     suite_version TEXT NOT NULL,
     provider TEXT NOT NULL,
+    model TEXT NOT NULL DEFAULT '',
     composite_score REAL NOT NULL,
     coverage_score REAL NOT NULL,
     accuracy_score REAL NOT NULL,
@@ -103,6 +104,7 @@ CREATE TABLE IF NOT EXISTS baselines (
     captured_at TEXT NOT NULL,
     suite_name TEXT NOT NULL,
     provider TEXT NOT NULL,
+    model TEXT NOT NULL DEFAULT '',
     composite_score REAL NOT NULL,
     coverage_score REAL NOT NULL,
     accuracy_score REAL NOT NULL,
@@ -132,11 +134,20 @@ def _connect(path: str | None = None) -> sqlite3.Connection:
     return conn
 
 
+def _ensure_columns(conn: sqlite3.Connection) -> None:
+    """Add columns introduced after a DB was first created. Idempotent."""
+    for table in ("runs", "baselines"):
+        cols = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if "model" not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN model TEXT NOT NULL DEFAULT ''")
+
+
 def init_db(path: str | None = None) -> None:
-    """Idempotent: creates tables if missing."""
+    """Idempotent: creates tables if missing and migrates older schemas."""
     conn = _connect(path)
     try:
         conn.executescript(SCHEMA)
+        _ensure_columns(conn)
         conn.commit()
     finally:
         conn.close()
@@ -149,13 +160,13 @@ def save_run(record: RunRecord, path: str | None = None) -> None:
     try:
         conn.execute(
             """INSERT INTO runs (
-                id, timestamp, suite_name, suite_version, provider,
+                id, timestamp, suite_name, suite_version, provider, model,
                 composite_score, coverage_score, accuracy_score,
                 format_score, hallucination_score, threshold_status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 record.id, record.timestamp, record.suite_name,
-                record.suite_version, record.provider,
+                record.suite_version, record.provider, record.model,
                 record.composite_score, record.coverage_score,
                 record.accuracy_score, record.format_score,
                 record.hallucination_score, record.threshold_status,
@@ -246,7 +257,7 @@ def get_run(run_id: str, path: str | None = None) -> Optional[dict]:
 def list_runs(
     limit: int = 20, offset: int = 0,
     suite_name: str | None = None, provider: str | None = None,
-    path: str | None = None,
+    model: str | None = None, path: str | None = None,
 ) -> list[dict]:
     init_db(path)
     conn = _connect(path)
@@ -259,6 +270,9 @@ def list_runs(
         if provider:
             where.append("provider = ?")
             params.append(provider)
+        if model is not None:
+            where.append("model = ?")
+            params.append(model)
         sql = "SELECT * FROM runs"
         if where:
             sql += " WHERE " + " AND ".join(where)
@@ -330,14 +344,14 @@ def save_baseline(record: RunRecord, path: str | None = None) -> None:
     try:
         conn.execute(
             """INSERT INTO baselines (
-                id, captured_at, suite_name, provider,
+                id, captured_at, suite_name, provider, model,
                 composite_score, coverage_score, accuracy_score,
                 format_score, hallucination_score
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 str(uuid.uuid4()),
                 datetime.now(timezone.utc).isoformat(),
-                record.suite_name, record.provider,
+                record.suite_name, record.provider, record.model,
                 record.composite_score, record.coverage_score,
                 record.accuracy_score, record.format_score,
                 record.hallucination_score,
@@ -349,18 +363,25 @@ def save_baseline(record: RunRecord, path: str | None = None) -> None:
 
 
 def get_baseline(
-    suite_name: str, provider: str, path: str | None = None,
+    suite_name: str, provider: str, model: str | None = None,
+    path: str | None = None,
 ) -> Optional[dict]:
-    """Returns the most recent baseline for a suite/provider."""
+    """Return the most recent baseline for a suite/provider (and model, if given).
+
+    When ``model`` is provided the baseline is keyed by (suite, provider, model)
+    so a regression in one model isn't hidden by another. When omitted, the most
+    recent baseline for the suite/provider is returned regardless of model.
+    """
     init_db(path)
     conn = _connect(path)
     try:
-        row = conn.execute(
-            """SELECT * FROM baselines
-            WHERE suite_name = ? AND provider = ?
-            ORDER BY captured_at DESC LIMIT 1""",
-            (suite_name, provider),
-        ).fetchone()
+        sql = "SELECT * FROM baselines WHERE suite_name = ? AND provider = ?"
+        params: list = [suite_name, provider]
+        if model is not None:
+            sql += " AND model = ?"
+            params.append(model)
+        sql += " ORDER BY captured_at DESC LIMIT 1"
+        row = conn.execute(sql, params).fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
