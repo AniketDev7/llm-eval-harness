@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from rich.console import Console
 
 from llm_eval.drift.detector import capture_baseline, check_drift
+from llm_eval.guardrails import load_guardrail_suite, run_guardrail_suite
 from llm_eval.reporters.html_reporter import write_html
 from llm_eval.reporters.json_reporter import write_json
 from llm_eval.reporters.terminal import print_run
@@ -25,8 +26,10 @@ load_dotenv()
 app = typer.Typer(help="llm-eval-harness: regression tests for LLM outputs.")
 baseline_app = typer.Typer(help="Baseline operations.")
 drift_app = typer.Typer(help="Drift detection.")
+guardrails_app = typer.Typer(help="Run classified AI guardrail suites.")
 app.add_typer(baseline_app, name="baseline")
 app.add_typer(drift_app, name="drift")
+app.add_typer(guardrails_app, name="guardrails")
 
 console = Console()
 
@@ -118,6 +121,34 @@ def drift_check(
     console.print(f"  Recent:   {report.recent_scores}")
     console.print(f"  Trend:    {report.trend}")
     console.print(f"  [{color}]Alert:    {report.alert} - {report.message}[/{color}]")
+
+
+@guardrails_app.command("run")
+def guardrails_run(
+    suite: str = typer.Argument(..., help="Path to a classified guardrail YAML suite."),
+    ci: bool = typer.Option(False, "--ci", help="Exit non-zero on any failed guardrail."),
+    provider: Optional[str] = typer.Option(None, "--provider"),
+) -> None:
+    """Run a guardrail suite and print its security-focused result."""
+    try:
+        definition = load_guardrail_suite(suite)
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Invalid guardrail suite:[/red] {exc}")
+        raise typer.Exit(code=2) from exc
+    if provider:
+        definition.suite.providers = [provider]
+    records, summary = run_guardrail_suite(definition)
+    for record in records:
+        save_run(record)
+        print_run(record)
+    color = "green" if summary.status == "PASS" else "red"
+    console.print(
+        f"[{color}]Guardrails {summary.status}[/{color}] "
+        f"attack={summary.attack_class} severity={summary.severity} "
+        f"passed={summary.passed}/{summary.total} errors={summary.provider_errors}"
+    )
+    if ci and summary.status != "PASS":
+        raise typer.Exit(code=1)
 
 
 @app.command()
