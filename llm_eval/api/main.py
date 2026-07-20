@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 
-from llm_eval.api.routes import runs, results, history, compare, export
+from llm_eval.api.routes import runs, results, history, compare, export, quality
 from llm_eval.storage.db import init_db
 
 
@@ -42,6 +42,7 @@ app.include_router(results.router, prefix="/api")
 app.include_router(history.router, prefix="/api")
 app.include_router(compare.router, prefix="/api")
 app.include_router(export.router, prefix="/api")
+app.include_router(quality.router, prefix="/api")
 
 
 @app.get("/api/health")

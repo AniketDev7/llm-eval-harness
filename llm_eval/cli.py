@@ -12,6 +12,7 @@ from rich.console import Console
 
 from llm_eval.drift.detector import capture_baseline, check_drift
 from llm_eval.guardrails import load_guardrail_suite, run_guardrail_suite
+from llm_eval.quality import assess_risk, compare_run_records
 from llm_eval.reporters.html_reporter import write_html
 from llm_eval.reporters.json_reporter import write_json
 from llm_eval.reporters.terminal import print_run
@@ -27,9 +28,13 @@ app = typer.Typer(help="llm-eval-harness: regression tests for LLM outputs.")
 baseline_app = typer.Typer(help="Baseline operations.")
 drift_app = typer.Typer(help="Drift detection.")
 guardrails_app = typer.Typer(help="Run classified AI guardrail suites.")
+risk_app = typer.Typer(help="Calculate severity-weighted run risk.")
+regression_app = typer.Typer(help="Compare baseline and candidate assertions.")
 app.add_typer(baseline_app, name="baseline")
 app.add_typer(drift_app, name="drift")
 app.add_typer(guardrails_app, name="guardrails")
+app.add_typer(risk_app, name="risk")
+app.add_typer(regression_app, name="regression")
 
 console = Console()
 
@@ -141,6 +146,11 @@ def guardrails_run(
     for record in records:
         save_run(record)
         print_run(record)
+        risk_report = assess_risk(record)
+        console.print(
+            f"  Risk: {risk_report.score:.1f}/100 ({risk_report.level}) "
+            f"failures={risk_report.failed_checks}"
+        )
     color = "green" if summary.status == "PASS" else "red"
     console.print(
         f"[{color}]Guardrails {summary.status}[/{color}] "
@@ -148,6 +158,61 @@ def guardrails_run(
         f"passed={summary.passed}/{summary.total} errors={summary.provider_errors}"
     )
     if ci and summary.status != "PASS":
+        raise typer.Exit(code=1)
+
+
+def _load_record(run_id: str):
+    from llm_eval.api.routes.export import _reconstruct
+    row = get_run(run_id)
+    if not row:
+        console.print(f"[red]Run {run_id} not found.[/red]")
+        raise typer.Exit(code=2)
+    return _reconstruct(
+        row,
+        get_results_for_run(run_id),
+        get_audit_results_for_run(run_id),
+    )
+
+
+@risk_app.command("show")
+def risk_show(run_id: str = typer.Argument(...)) -> None:
+    """Show severity-weighted release risk for a stored run."""
+    report = assess_risk(_load_record(run_id))
+    console.print(
+        f"Risk {report.score:.1f}/100 ({report.level}) - "
+        f"{report.failed_checks}/{report.total_checks} checks failed"
+    )
+    for finding in report.findings:
+        console.print(
+            f"  [{finding.severity}] {finding.eval_name}/{finding.assertion_type}: "
+            f"{finding.detail}"
+        )
+
+
+@regression_app.command("compare")
+def regression_compare(
+    baseline_run: str = typer.Argument(...),
+    candidate_run: str = typer.Argument(...),
+    tolerance: float = typer.Option(0.05, min=0.0, max=1.0),
+    ci: bool = typer.Option(False, "--ci", help="Exit non-zero when regressions exist."),
+) -> None:
+    """Compare a candidate run against an assertion-level baseline."""
+    try:
+        report = compare_run_records(
+            _load_record(baseline_run),
+            _load_record(candidate_run),
+            tolerance,
+        )
+    except ValueError as exc:
+        console.print(f"[red]Cannot compare runs:[/red] {exc}")
+        raise typer.Exit(code=2) from exc
+    status = "FAIL" if report.has_regressions else "PASS"
+    console.print(
+        f"Regression {status}: delta={report.composite_delta:+.3f} "
+        f"new={len(report.newly_failed)} degraded={len(report.degraded)} "
+        f"missing={len(report.missing_checks)} resolved={len(report.resolved)}"
+    )
+    if ci and report.has_regressions:
         raise typer.Exit(code=1)
 
 

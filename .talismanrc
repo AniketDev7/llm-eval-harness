@@ -11,4 +11,8 @@ fileignoreconfig:
   checksum: aadd7004e1c73566412d37c87b47bcd4da4d80a989ce2d577f6f5d02dca5e53c
 - filename: llm_eval/evaluators/agent.py
   checksum: 63fca67ae5960ba8f63692c2aeaf44f3a4c737e870077443131b2528cff10b23
+- filename: llm_eval/quality/regression.py
+  checksum: 58ca46ad2638dff31acb2f270e7d3fd953c6edea2990458265470d4bf6c9c586
+- filename: tests/test_quality.py
+  checksum: ecb9472b1c5c79ee7bb47a5a1ddfb43d1c774aacb9db4ed0708c61665f1d732e
 version: "1.0"
