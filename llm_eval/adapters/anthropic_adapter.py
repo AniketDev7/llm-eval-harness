@@ -5,7 +5,7 @@ import os
 import time
 
 from llm_eval.adapters.base import BaseAdapter
-from llm_eval.models import CompletionResult, ModelConfig
+from llm_eval.models import AgentStep, CompletionResult, ModelConfig, ToolCall
 
 
 class AnthropicAdapter(BaseAdapter):
@@ -50,9 +50,16 @@ class AnthropicAdapter(BaseAdapter):
                 latency_ms = int((time.time() - start) * 1000)
                 # Anthropic returns a list of content blocks; concat text blocks.
                 parts: list[str] = []
+                tool_calls: list[ToolCall] = []
                 for block in response.content:
                     if getattr(block, "type", None) == "text":
                         parts.append(block.text)
+                    elif getattr(block, "type", None) == "tool_use":
+                        tool_calls.append(ToolCall(
+                            name=block.name,
+                            arguments=block.input or {},
+                            call_id=getattr(block, "id", ""),
+                        ))
                 text = "".join(parts)
                 tokens = 0
                 if response.usage:
@@ -62,6 +69,8 @@ class AnthropicAdapter(BaseAdapter):
                     latency_ms=latency_ms,
                     tokens_used=tokens,
                     model_version=response.model or self.model,
+                    tool_calls=tool_calls,
+                    trajectory=[AgentStep(kind="tool_call", name=call.name) for call in tool_calls],
                 )
             except Exception as exc:  # noqa: BLE001
                 err_name = exc.__class__.__name__

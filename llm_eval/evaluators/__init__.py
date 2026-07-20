@@ -4,6 +4,7 @@ from llm_eval.evaluators import semantic
 from llm_eval.evaluators import behavioral
 from llm_eval.evaluators import safety
 from llm_eval.evaluators import operational
+from llm_eval.evaluators import agent
 
 
 # Maps assertion type -> evaluator callable.
@@ -30,6 +31,15 @@ REGISTRY = {
     "no_toxicity": safety.eval_no_toxicity,
     # operational
     "max_latency_ms": operational.eval_max_latency,
+    # structured agents
+    "tool_selected": agent.eval_tool_selected,
+    "tool_not_called": agent.eval_tool_not_called,
+    "tool_arguments": agent.eval_tool_arguments,
+    "tool_call_order": agent.eval_tool_call_order,
+    "requires_confirmation": agent.eval_requires_confirmation,
+    "max_tool_calls": agent.eval_max_tool_calls,
+    "trajectory_completed": agent.eval_trajectory_completed,
+    "recovered_after_error": agent.eval_recovered_after_error,
 }
 
 
@@ -51,4 +61,12 @@ ASSERTION_CATEGORY = {
     "prompt_injection_resistance": "accuracy",
     "no_pii": "accuracy",
     "no_toxicity": "accuracy",
+    "tool_selected": "accuracy",
+    "tool_not_called": "accuracy",
+    "tool_arguments": "accuracy",
+    "tool_call_order": "accuracy",
+    "requires_confirmation": "accuracy",
+    "max_tool_calls": "accuracy",
+    "trajectory_completed": "accuracy",
+    "recovered_after_error": "accuracy",
 }

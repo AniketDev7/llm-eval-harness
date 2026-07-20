@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import os
 import time
+import json
 
 from llm_eval.adapters.base import BaseAdapter
-from llm_eval.models import CompletionResult, ModelConfig
+from llm_eval.models import AgentStep, CompletionResult, ModelConfig, ToolCall
 
 
 class OpenAIAdapter(BaseAdapter):
@@ -42,12 +43,27 @@ class OpenAIAdapter(BaseAdapter):
                 )
                 latency_ms = int((time.time() - start) * 1000)
                 text = response.choices[0].message.content or ""
+                raw_tool_calls = getattr(response.choices[0].message, "tool_calls", None) or []
+                tool_calls: list[ToolCall] = []
+                for call in raw_tool_calls:
+                    raw_arguments = getattr(call.function, "arguments", "{}")
+                    try:
+                        arguments = json.loads(raw_arguments)
+                    except (TypeError, json.JSONDecodeError):
+                        arguments = {"_raw": str(raw_arguments)}
+                    tool_calls.append(ToolCall(
+                        name=call.function.name,
+                        arguments=arguments,
+                        call_id=getattr(call, "id", ""),
+                    ))
                 tokens = response.usage.total_tokens if response.usage else 0
                 return CompletionResult(
                     text=text,
                     latency_ms=latency_ms,
                     tokens_used=tokens,
                     model_version=response.model or self.model,
+                    tool_calls=tool_calls,
+                    trajectory=[AgentStep(kind="tool_call", name=call.name) for call in tool_calls],
                 )
             except Exception as exc:  # noqa: BLE001
                 err_name = exc.__class__.__name__

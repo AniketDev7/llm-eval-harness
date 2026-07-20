@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from llm_eval.adapters.base import BaseAdapter
-from llm_eval.models import CompletionResult, ModelConfig, RunRecord
+from llm_eval.models import AgentStep, CompletionResult, ModelConfig, RunRecord, ToolCall
 from llm_eval.runner.runner import Runner, load_suite
 from llm_eval.storage.db import get_audit_results_for_run, save_run, list_runs, init_db
 
@@ -34,6 +34,21 @@ class ErrorAdapter(BaseAdapter):
 
     def complete(self, prompt: str, config: ModelConfig) -> CompletionResult:
         return CompletionResult(text="", latency_ms=1, error="provider unavailable")
+
+
+class AgentAdapter(BaseAdapter):
+    def name(self) -> str:
+        return "agent"
+
+    def complete(self, prompt: str, config: ModelConfig) -> CompletionResult:
+        return CompletionResult(
+            text="Looked it up.", latency_ms=2, model_version="agent-v1",
+            tool_calls=[ToolCall(name="lookup", arguments={"id": "42"})],
+            trajectory=[
+                AgentStep(kind="tool_call", name="lookup", success=True),
+                AgentStep(kind="final", content="Looked it up."),
+            ],
+        )
 
 
 YAML_SUITE = """
@@ -213,3 +228,15 @@ def test_audit_trail_keeps_cases_without_assertions(tmp_db):
     audit = get_audit_results_for_run(record.id)
     assert len(audit) == 1
     assert audit[0]["assertions"] == []
+
+
+def test_audit_trail_keeps_structured_agent_trace(tmp_db, yaml_path):
+    suite = load_suite(yaml_path)
+    suite.providers = ["agent"]
+    suite.evals = [suite.evals[0]]
+    record = Runner(suite, adapters={"agent": AgentAdapter()}).run()[0]
+    save_run(record)
+
+    completion_row = get_audit_results_for_run(record.id)[0]["completions"][0]
+    assert completion_row["tool_calls"][0]["name"] == "lookup"
+    assert completion_row["trajectory"][-1]["kind"] == "final"

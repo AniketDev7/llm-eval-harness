@@ -28,6 +28,21 @@ class Thresholds(BaseModel):
         return self
 
 
+class ToolCall(BaseModel):
+    """A structured tool invocation emitted by an agent-capable model."""
+    name: str = Field(min_length=1)
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    call_id: str = ""
+
+
+class AgentStep(BaseModel):
+    """One observable step in an agent trajectory."""
+    kind: str = Field(min_length=1)
+    name: str = ""
+    content: str = ""
+    success: Optional[bool] = None
+
+
 class CompletionResult(BaseModel):
     """The result of a single LLM call."""
     text: str
@@ -35,6 +50,8 @@ class CompletionResult(BaseModel):
     tokens_used: int = 0
     model_version: str = ""
     error: Optional[str] = None
+    tool_calls: list[ToolCall] = Field(default_factory=list)
+    trajectory: list[AgentStep] = Field(default_factory=list)
 
 
 class Assertion(BaseModel):
