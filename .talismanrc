@@ -9,4 +9,6 @@ fileignoreconfig:
   checksum: 0b86799b2b70f938c376ea03e73f60611805c8a7dcb6a8f071fb17b0ebe8b690
 - filename: llm_eval/guardrails/core.py
   checksum: aadd7004e1c73566412d37c87b47bcd4da4d80a989ce2d577f6f5d02dca5e53c
+- filename: llm_eval/evaluators/agent.py
+  checksum: 63fca67ae5960ba8f63692c2aeaf44f3a4c737e870077443131b2528cff10b23
 version: "1.0"

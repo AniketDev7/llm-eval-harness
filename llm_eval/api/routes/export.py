@@ -47,6 +47,8 @@ def _reconstruct(
                     tokens_used=c["tokens_used"],
                     model_version=c["model_version"],
                     error=c["error"],
+                    tool_calls=c.get("tool_calls", []),
+                    trajectory=c.get("trajectory", []),
                 ) for c in row["completions"]],
             ))
         return _record_from_results(run_row, exact_results)

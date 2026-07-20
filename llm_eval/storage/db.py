@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import json
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -87,6 +88,16 @@ CREATE TABLE IF NOT EXISTS completion_attempts (
     UNIQUE (case_id, attempt_index)
 );
 
+CREATE TABLE IF NOT EXISTS completion_traces (
+    id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL,
+    attempt_index INTEGER NOT NULL,
+    tool_calls_json TEXT NOT NULL,
+    trajectory_json TEXT NOT NULL,
+    FOREIGN KEY (case_id) REFERENCES eval_case_records(id),
+    UNIQUE (case_id, attempt_index)
+);
+
 CREATE TABLE IF NOT EXISTS baselines (
     id TEXT PRIMARY KEY,
     captured_at TEXT NOT NULL,
@@ -104,6 +115,7 @@ CREATE INDEX IF NOT EXISTS idx_results_run ON eval_results(run_id);
 CREATE INDEX IF NOT EXISTS idx_case_records_run ON eval_case_records(run_id, eval_index);
 CREATE INDEX IF NOT EXISTS idx_assertion_records_case ON assertion_records(case_id, assertion_index);
 CREATE INDEX IF NOT EXISTS idx_completion_attempts_case ON completion_attempts(case_id, attempt_index);
+CREATE INDEX IF NOT EXISTS idx_completion_traces_case ON completion_traces(case_id, attempt_index);
 CREATE INDEX IF NOT EXISTS idx_baselines_suite ON baselines(suite_name, provider);
 """
 
@@ -181,6 +193,16 @@ def save_run(record: RunRecord, path: str | None = None) -> None:
                         completion.text, completion.latency_ms,
                         completion.tokens_used, completion.model_version,
                         completion.error,
+                    ),
+                )
+                conn.execute(
+                    """INSERT INTO completion_traces (
+                        id, case_id, attempt_index, tool_calls_json, trajectory_json
+                    ) VALUES (?, ?, ?, ?, ?)""",
+                    (
+                        str(uuid.uuid4()), case_id, attempt_index,
+                        json.dumps([item.model_dump() for item in completion.tool_calls]),
+                        json.dumps([item.model_dump() for item in completion.trajectory]),
                     ),
                 )
             for assertion_index, a in enumerate(r.assertions):
@@ -282,8 +304,20 @@ def get_audit_results_for_run(run_id: str, path: str | None = None) -> list[dict
                    FROM completion_attempts WHERE case_id = ? ORDER BY attempt_index""",
                 (case["id"],),
             ).fetchall()
+            traces = conn.execute(
+                """SELECT attempt_index, tool_calls_json, trajectory_json
+                   FROM completion_traces WHERE case_id = ? ORDER BY attempt_index""",
+                (case["id"],),
+            ).fetchall()
+            trace_by_attempt = {row["attempt_index"]: row for row in traces}
             item["assertions"] = [dict(row) for row in assertions]
-            item["completions"] = [dict(row) for row in completions]
+            item["completions"] = []
+            for attempt_index, row in enumerate(completions):
+                completion = dict(row)
+                trace = trace_by_attempt.get(attempt_index)
+                completion["tool_calls"] = json.loads(trace["tool_calls_json"]) if trace else []
+                completion["trajectory"] = json.loads(trace["trajectory_json"]) if trace else []
+                item["completions"].append(completion)
             audit.append(item)
         return audit
     finally:
