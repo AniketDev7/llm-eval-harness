@@ -22,7 +22,7 @@ fileignoreconfig:
 - filename: llm_eval/adapters/openai_adapter.py
   checksum: bc27a97bef80d1a6f6be0e24cb2fb85191344b36ee39ec59d74bfbb5a0614484
 - filename: README.md
-  checksum: b3e481fbce5a854e7e19aa0152ab1606ba1720bc628a40c572107f60bd7606e7
+  checksum: 136ec7f8020feb0ebac18e7891baca2a841ca1db8eb9752ec731501aca41f85b
 - filename: tests/test_runner.py
   checksum: 0f17a07919c24cad550b0a1275df4204d5e3c007852b7471343b5f1afaae9e5f
 - filename: llm_eval/api/routes/export.py

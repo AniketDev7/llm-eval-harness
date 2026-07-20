@@ -37,7 +37,17 @@ The same prompt can produce a slightly different response on every run—and bot
 ## Install
 
 ```bash
-pip install -e .
+python3 -m pip install -e ".[dev]"
+```
+
+Run the CLI portably as `python3 -m llm_eval.cli`. Installing the project also
+creates a shorter `llm-eval` launcher, but that launcher works only when your
+Python scripts directory is on `PATH`. To enable the shorthand in the current
+shell:
+
+```bash
+export PATH="$(python3 -c 'import sysconfig; print(sysconfig.get_path("scripts"))'):$PATH"
+llm-eval --help
 ```
 
 Copy the environment file and add your API keys:
@@ -51,37 +61,35 @@ cp .env.example .env
 
 ## Quick Start
 
+First validate the repository itself. This path uses mocks and fake data, does
+not require provider API keys, and writes `reports/pytest_report.html`:
+
 ```bash
-# Run the quickstart eval suite
-llm-eval run evals/quickstart.yaml
+python3 -m pytest tests/ -q
+```
+
+Then, optionally run a real model evaluation. The quickstart suite calls both
+OpenAI and Anthropic (including additional judge calls), so it requires both API
+keys and can consume provider credits:
+
+```bash
+# Run a real quickstart evaluation
+python3 -m llm_eval.cli run evals/quickstart.yaml
 
 # With HTML report
-llm-eval run evals/quickstart.yaml --html
+python3 -m llm_eval.cli run evals/quickstart.yaml --html
 
 # CI mode (exits non-zero if score drops below threshold)
-llm-eval run evals/quickstart.yaml --ci
+python3 -m llm_eval.cli run evals/quickstart.yaml --ci
 
 # Build the playground once, then launch it
 cd playground && npm ci && npm run build && cd ..
-llm-eval playground
+python3 -m llm_eval.cli playground
 ```
 
-**Example terminal output:**
-```
-Running suite quickstart-suite v1.0...
-
-✓ basic_format_check       [format]       openai: PASS | anthropic: PASS
-✓ length_constraint         [format]       openai: PASS | anthropic: PASS
-✓ semantic_correctness      [correctness]  openai: PASS | anthropic: PASS
-✓ faithfulness_check        [correctness]  openai: PASS | anthropic: PASS
-✗ injection_resistance      [edge_case]    openai: FAIL | anthropic: PASS
-✓ response_consistency      [consistency]  openai: PASS | anthropic: PASS
-✓ pii_safety                [edge_case]    openai: PASS | anthropic: PASS
-✓ latency_check             [format]       openai: PASS | anthropic: PASS
-
-Composite Score: 0.84  ✓ PASS (threshold: 0.80)
-Coverage: 0.875 | Accuracy: 0.82 | Format: 0.91 | Hallucination: 0.88
-```
+The evaluation CLI prints a separate Rich table for each provider with per-case
+status, failed-assertion details, weighted component scores, the composite
+score, and the resulting `PASS`/`REVIEW`/`ALERT`/`PAUSE` status.
 
 ---
 
@@ -186,13 +194,16 @@ composite = 0.40 × coverage + 0.30 × accuracy + 0.20 × format + 0.10 × hallu
 | Format | 20% | Average score across format assertions |
 | Hallucination | 10% | Average faithfulness + judge scores |
 
-**Thresholds** (calibrate after 4 weeks of baseline data):
+**Thresholds** (calibrate after collecting representative baseline runs):
 | Score | Status | Action |
 |---|---|---|
-| ≥ 0.80 | PASS | ✓ |
-| < 0.80 | REVIEW | Manual review triggered |
-| < 0.70 | ALERT | Alert notification sent |
-| < 0.60 | PAUSE | Workflow paused pending investigation |
+| ≥ 0.80 | PASS | CLI completes successfully |
+| 0.70–0.79 | REVIEW | Recorded as REVIEW; `--ci` exits non-zero |
+| 0.60–0.69 | ALERT | Recorded as ALERT; `--ci` exits non-zero |
+| < 0.60 | PAUSE | Recorded as PAUSE; `--ci` exits non-zero |
+
+The harness does not send notifications or pause deployment systems itself;
+external automation can act on the CLI exit code or stored status.
 
 ---
 
@@ -249,10 +260,13 @@ evals:
 Different LLMs interpret the same `SKILLS.md` / `AGENTS.md` rulebook differently. The bundled [`evals/skill-interpretation-suite.yaml`](evals/skill-interpretation-suite.yaml) is a live demonstration:
 
 ```bash
-llm-eval run evals/skill-interpretation-suite.yaml
+python3 -m llm_eval.cli run evals/skill-interpretation-suite.yaml
 ```
 
-The suite embeds a real SKILL.md rulebook into the prompt, asks the model what its first action would be on a debugging request, and scores all three providers. The result is a clean cross-vendor comparison showing one of the discoveries that drove the project:
+The suite embeds a SKILL.md rulebook into the prompt, asks the model what its
+first action would be on a debugging request, and scores three pinned model
+slots. One observed run produced the following results; provider behavior and
+scores can change between runs:
 
 | Model | Composite | Behavior |
 |---|---|---|
@@ -270,36 +284,36 @@ YAML suites support `provider:model` syntax to pin a specific model version (oth
 
 ```bash
 # Run an eval suite
-llm-eval run evals/my-suite.yaml
-llm-eval run evals/my-suite.yaml --ci              # CI mode: exit 1 on REVIEW/ALERT/PAUSE
-llm-eval run evals/my-suite.yaml --provider openai # Single provider override
-llm-eval run evals/my-suite.yaml --html            # Also write HTML report
+python3 -m llm_eval.cli run evals/my-suite.yaml
+python3 -m llm_eval.cli run evals/my-suite.yaml --ci
+python3 -m llm_eval.cli run evals/my-suite.yaml --provider openai
+python3 -m llm_eval.cli run evals/my-suite.yaml --html
 
 # Baseline and drift detection
-llm-eval baseline save evals/my-suite.yaml         # Capture today's run as baseline
-llm-eval baseline show my-suite openai             # Show current baseline scores
-llm-eval drift check my-suite openai               # Compare recent runs to baseline
+python3 -m llm_eval.cli baseline save evals/my-suite.yaml
+python3 -m llm_eval.cli baseline show my-suite openai
+python3 -m llm_eval.cli drift check my-suite openai
 
 # Security guardrails
-llm-eval guardrails run guardrails/prompt-injection.yaml --ci
+python3 -m llm_eval.cli guardrails run guardrails/prompt-injection.yaml --ci
 
 # Risk and assertion-level regression analysis
-llm-eval risk show <run-id>
-llm-eval regression compare <baseline-run-id> <candidate-run-id> --ci
+python3 -m llm_eval.cli risk show <run-id>
+python3 -m llm_eval.cli regression compare <baseline-run-id> <candidate-run-id> --ci
 
 # Execute a real local MCP stdio scenario
-llm-eval mcp run examples/vulnerable_workspace_mcp/suites/tenant-isolation.yaml --ci
+python3 -m llm_eval.cli mcp run examples/vulnerable_workspace_mcp/suites/tenant-isolation.yaml --ci
 
 # Reports
-llm-eval report                                    # HTML report from latest run
-llm-eval report --run-id <id> --format json        # JSON export for a specific run
+python3 -m llm_eval.cli report
+python3 -m llm_eval.cli report --run-id <id> --format json
 
 # List past runs
-llm-eval list
+python3 -m llm_eval.cli list
 
 # Launch web playground
-llm-eval playground
-llm-eval playground --port 9000 --no-browser
+python3 -m llm_eval.cli playground
+python3 -m llm_eval.cli playground --port 9000 --no-browser
 ```
 
 ### MCP Security Scenarios
@@ -309,13 +323,14 @@ email addresses. It does not connect to a real business system. Run a secure
 scenario with:
 
 ```bash
-llm-eval mcp run examples/vulnerable_workspace_mcp/suites/tenant-isolation.yaml --ci
+python3 -m llm_eval.cli mcp run examples/vulnerable_workspace_mcp/suites/tenant-isolation.yaml --ci
 ```
 
 Secure scenarios should pass and report attempted operations as blocked. The
 `vulnerable-control.yaml` scenario intentionally exits non-zero in CI mode to
 prove that the harness detects successful unsafe behavior. Scenario runs are
-stored in SQLite and can be exported with `llm-eval report --run-id <id>`.
+stored in SQLite and can be exported with
+`python3 -m llm_eval.cli report --run-id <id>`.
 
 ---
 
@@ -332,10 +347,10 @@ provider's training-data distribution or determine why a score changed.
 | Model identity | Persisted provider model version in the audit record |
 
 **The 5-step strategy:**
-1. Run `llm-eval baseline save` after your first successful run
-2. Run `llm-eval run --ci` on your chosen evaluation cadence
-3. Set thresholds after 4 weeks of baseline data (not immediately)
-4. Check `llm-eval drift check` to see 8-week score trends
+1. Run `python3 -m llm_eval.cli baseline save` after your first successful run
+2. Run `python3 -m llm_eval.cli run --ci` on your chosen evaluation cadence
+3. Calibrate thresholds after collecting representative baseline runs
+4. Check `python3 -m llm_eval.cli drift check` to inspect the latest eight runs
 5. Define who gets notified and what they do when an alert fires
 
 ---
@@ -343,7 +358,7 @@ provider's training-data distribution or determine why a score changed.
 ## Web Playground
 
 ```bash
-llm-eval playground
+python3 -m llm_eval.cli playground
 # Opens http://localhost:8000 in your browser
 ```
 
@@ -353,7 +368,7 @@ Five pages:
 |---|---|
 | **Run Eval** | Type a prompt, select providers, add assertions, run live |
 | **Load Suite** | Upload or paste YAML; the backend safely parses and runs its complete semantics |
-| **History** | Browse past runs, view 8-week score trend chart |
+| **History** | Browse past runs and view recent-run score trends |
 | **Compare** | Side-by-side provider comparison on the same run |
 | **Export** | Download JSON or HTML report for any past run |
 
@@ -407,7 +422,7 @@ llm-eval-harness/
 ## Running Tests
 
 ```bash
-pip install -e ".[dev]"
+python3 -m pip install -e ".[dev]"
 python3 -m pytest tests/ -q
 ```
 
@@ -416,14 +431,18 @@ Every pytest run automatically writes a self-contained HTML summary to
 terminal output. Open it on macOS with `open reports/pytest_report.html`.
 Set `LLM_EVAL_PYTEST_HTML=0` to disable report generation.
 
-Tests use mock adapters — no API keys required to run the test suite.
+Tests use mock adapters, fake MCP data, and temporary databases—no provider API
+keys are required. The first semantic-evaluator run may download the configured
+sentence-transformer model into the local model cache.
 
 ---
 
 ## Design Decisions
 
 **Why the Adapter pattern?**
-Every provider implements two methods (`complete`, `name`). Adding a third provider is a single new file — the runner and evaluators never change. Maps directly to the Gang of Four Adapter pattern from Java/OOP that interviewers recognize.
+Every provider implements two methods (`complete`, `name`). Adding a provider
+requires an adapter implementation plus registration in `get_adapter`; the
+runner and evaluators do not need provider-specific logic.
 
 **Why a weighted composite score instead of pass/fail?**
 A binary pass/fail can't tell you if you're trending toward a problem. A score of 0.81 that was 0.95 three months ago is worth investigating even if it's technically "passing." The 4-component weighted system surfaces the degradation before it crosses a threshold.
@@ -432,10 +451,16 @@ A binary pass/fail can't tell you if you're trending toward a problem. A score o
 Zero infrastructure, works offline, portable, survives restarts. Canonical audit tables preserve each evaluation, assertion, repeated completion, model version, provider error, tool call, and agent step. The older flattened result table remains for backward compatibility.
 
 **Why temperature 0.1?**
-For QA applications, 0–0.3 is the standard range — low temperature produces more consistent outputs, which makes pass/fail assertions more reliable. This is a deliberate, tested configuration choice — not a default left unchanged.
+The low default reduces response variance between repeated evaluation runs while
+remaining configurable per suite. It does not make model output deterministic.
 
 **Why hybrid faithfulness (judge + embedding grounding)?**
-A pure LLM-as-judge for faithfulness misses a specific failure mode: a response that is plausible-sounding but fabricates details not in the source context. In practice, judges rate fluent fabrication at 1.0. The harness's `faithfulness` evaluator computes both an LLM judge score and a per-sentence max-cosine-similarity grounding score against the context, then returns `min(judge, grounding)`. This catches hallucinations the judge alone would pass. The assertion detail surfaces both subscores (`judge=1.00, grounding=0.55`) so failures are diagnosable.
+A pure LLM-as-judge can miss plausible-sounding details that are absent from the
+source context. The `faithfulness` evaluator normally computes both an LLM
+judge score and a per-sentence embedding-grounding score, then returns the lower
+value. The assertion detail surfaces both subscores for diagnosis. If embedding
+grounding cannot run, it records that failure and falls back to the judge score;
+judge infrastructure errors fail the assertion.
 
 ---
 
