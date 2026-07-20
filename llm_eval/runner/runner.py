@@ -162,6 +162,8 @@ class Runner:
                 response=primary.text,
                 latency_ms=primary.latency_ms,
                 tokens_used=primary.tokens_used,
+                model_version=primary.model_version,
+                completions=completions,
                 assertions=assertion_results,
                 error=primary.error,
             ))

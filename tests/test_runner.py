@@ -10,7 +10,7 @@ import pytest
 from llm_eval.adapters.base import BaseAdapter
 from llm_eval.models import CompletionResult, ModelConfig, RunRecord
 from llm_eval.runner.runner import Runner, load_suite
-from llm_eval.storage.db import save_run, list_runs, init_db
+from llm_eval.storage.db import get_audit_results_for_run, save_run, list_runs, init_db
 
 
 class MockAdapter(BaseAdapter):
@@ -186,3 +186,30 @@ def test_provider_error_can_never_score_pass(yaml_path):
     assert record.threshold_status == "PAUSE"
     assert all(r.error == "provider unavailable" for r in record.results)
     assert all(r.assertions[0].type == "provider_error" for r in record.results)
+
+
+def test_audit_trail_keeps_model_and_every_completion(tmp_db):
+    suite = load_suite(Path(__file__).parent.parent / "evals" / "quickstart.yaml")
+    suite.providers = ["mock"]
+    suite.evals = [suite.evals[0]]
+    suite.evals[0].runs = 3
+    record = Runner(suite, adapters={"mock": MockAdapter()}).run()[0]
+    save_run(record)
+
+    audit = get_audit_results_for_run(record.id)
+    assert len(audit) == 1
+    assert audit[0]["model_version"] == "mock-v1"
+    assert len(audit[0]["completions"]) == 3
+
+
+def test_audit_trail_keeps_cases_without_assertions(tmp_db):
+    suite = load_suite(Path(__file__).parent.parent / "evals" / "quickstart.yaml")
+    suite.providers = ["mock"]
+    suite.evals = [suite.evals[0]]
+    suite.evals[0].assertions = []
+    record = Runner(suite, adapters={"mock": MockAdapter()}).run()[0]
+    save_run(record)
+
+    audit = get_audit_results_for_run(record.id)
+    assert len(audit) == 1
+    assert audit[0]["assertions"] == []

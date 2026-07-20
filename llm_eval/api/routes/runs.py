@@ -16,7 +16,9 @@ from llm_eval.models import (
 )
 from llm_eval.runner.runner import Runner
 from llm_eval.scorer.scorer import score_run, evaluate_threshold
-from llm_eval.storage.db import list_runs, get_run, get_results_for_run, save_run
+from llm_eval.storage.db import (
+    get_audit_results_for_run, get_results_for_run, get_run, list_runs, save_run,
+)
 
 
 router = APIRouter()
@@ -92,4 +94,8 @@ def get_run_detail(run_id: str) -> dict:
     if not run:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
     results = get_results_for_run(run_id)
-    return {"run": run, "results": results}
+    return {
+        "run": run,
+        "results": results,
+        "evaluations": get_audit_results_for_run(run_id),
+    }
