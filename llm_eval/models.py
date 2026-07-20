@@ -92,6 +92,8 @@ class EvalResult(BaseModel):
     response: str
     latency_ms: int
     tokens_used: int
+    model_version: str = ""
+    completions: list[CompletionResult] = Field(default_factory=list)
     assertions: list[AssertionResult] = Field(default_factory=list)
     error: Optional[str] = None
 

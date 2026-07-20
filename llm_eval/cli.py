@@ -16,7 +16,8 @@ from llm_eval.reporters.json_reporter import write_json
 from llm_eval.reporters.terminal import print_run
 from llm_eval.runner.runner import Runner, load_suite
 from llm_eval.storage.db import (
-    get_run, get_results_for_run, list_runs, save_run, init_db,
+    get_audit_results_for_run, get_run, get_results_for_run,
+    list_runs, save_run, init_db,
 )
 
 load_dotenv()
@@ -139,7 +140,7 @@ def report(
         console.print(f"[red]Run {run_id} not found.[/red]")
         raise typer.Exit(code=2)
     results = get_results_for_run(run_id)
-    record = _reconstruct(run_row, results)
+    record = _reconstruct(run_row, results, get_audit_results_for_run(run_id))
 
     if format == "html":
         path = write_html(record)

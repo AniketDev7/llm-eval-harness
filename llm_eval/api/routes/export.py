@@ -7,19 +7,50 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 
-from llm_eval.models import (
-    AssertionResult, EvalResult, RunRecord,
-)
+from llm_eval.models import AssertionResult, CompletionResult, EvalResult, RunRecord
 from llm_eval.reporters.html_reporter import write_html
 from llm_eval.reporters.json_reporter import write_json
-from llm_eval.storage.db import get_run, get_results_for_run
+from llm_eval.storage.db import get_audit_results_for_run, get_run, get_results_for_run
 
 
 router = APIRouter()
 
 
-def _reconstruct(run_row: dict, result_rows: list[dict]) -> RunRecord:
+def _reconstruct(
+    run_row: dict,
+    result_rows: list[dict],
+    audit_rows: list[dict] | None = None,
+) -> RunRecord:
     """Build a RunRecord from raw DB rows (results table is flattened per-assertion)."""
+    if audit_rows:
+        exact_results: list[EvalResult] = []
+        for row in audit_rows:
+            exact_results.append(EvalResult(
+                eval_name=row["eval_name"],
+                category=row["category"],
+                provider=row["provider"],
+                prompt=row["prompt"],
+                response=row["response_text"],
+                latency_ms=row["latency_ms"],
+                tokens_used=row["tokens_used"],
+                model_version=row["model_version"],
+                error=row["error"],
+                assertions=[AssertionResult(
+                    type=a["assertion_type"],
+                    passed=bool(a["assertion_passed"]),
+                    score=a["assertion_score"],
+                    detail=a["assertion_detail"],
+                ) for a in row["assertions"]],
+                completions=[CompletionResult(
+                    text=c["response_text"],
+                    latency_ms=c["latency_ms"],
+                    tokens_used=c["tokens_used"],
+                    model_version=c["model_version"],
+                    error=c["error"],
+                ) for c in row["completions"]],
+            ))
+        return _record_from_results(run_row, exact_results)
+
     by_eval: dict[str, EvalResult] = {}
     for r in result_rows:
         key = r["eval_name"]
@@ -41,6 +72,10 @@ def _reconstruct(run_row: dict, result_rows: list[dict]) -> RunRecord:
             detail=r["assertion_detail"],
         ))
 
+    return _record_from_results(run_row, list(by_eval.values()))
+
+
+def _record_from_results(run_row: dict, results: list[EvalResult]) -> RunRecord:
     return RunRecord(
         id=run_row["id"],
         timestamp=run_row["timestamp"],
@@ -53,7 +88,7 @@ def _reconstruct(run_row: dict, result_rows: list[dict]) -> RunRecord:
         format_score=run_row["format_score"],
         hallucination_score=run_row["hallucination_score"],
         threshold_status=run_row["threshold_status"],
-        results=list(by_eval.values()),
+        results=results,
     )
 
 
@@ -63,7 +98,7 @@ def export(run_id: str, format: str = "json"):
     if not run:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
     results = get_results_for_run(run_id)
-    record = _reconstruct(run, results)
+    record = _reconstruct(run, results, get_audit_results_for_run(run_id))
 
     if format == "html":
         path = write_html(record)
