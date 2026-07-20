@@ -2,29 +2,34 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-40%2F40%20passing-brightgreen.svg)](#running-tests)
+[![Tests](https://img.shields.io/badge/tests-67%2F67%20passing-brightgreen.svg)](#running-tests)
 
-A Python framework for testing LLM outputs — prompt regression testing, response validation, and model drift detection across multiple providers (OpenAI, Anthropic).
+**Developer-first AI quality gates** for LLM outputs, safety guardrails, tool calls, and agent trajectories across multiple providers.
 
-Designed to address the gap between traditional deterministic test assertions (`assertEqual`, `assertContains`) and the probabilistic nature of LLM outputs. Every design decision — the assertion taxonomy, the weighted scoring, the drift detection strategy — is informed by current industry practice in LLM evaluation and responsible AI testing.
+The harness brings a QA-native workflow to probabilistic systems: versioned YAML suites, deterministic and semantic assertions, fail-closed CI, reproducible audit records, risk scoring, and assertion-level regression comparison.
 
 <p align="center">
-  <img src="LLM_Evaluation_and_Regression_Harness.png" alt="Mastering the Probabilistic: The LLM Evaluation & Regression Harness — advanced testing taxonomy (16 assertion types, hybrid faithfulness, multi-provider comparison) and quality monitoring (composite scoring, 8-week drift tracking, CI/CD regression guardrails)" width="900">
+  <img src="LLM_Evaluation_and_Regression_Harness.png" alt="LLM Evaluation and Regression Harness architecture and quality monitoring overview" width="900">
 </p>
 
 ---
 
 ## What It Does
 
-The same prompt can produce a slightly different response on every run — and both might be correct. This harness handles that with **5 categories of eval checks**, **16 assertion types**, and a **weighted composite quality score** that tells you not just whether a test passed, but how healthy your LLM outputs are — and whether they're degrading over time.
+The same prompt can produce a slightly different response on every run—and both might be correct. This harness handles that with **28 assertion types**, a weighted quality score, security risk assessment, and baseline regression reports.
 
 ## Highlights
 
 - **Multi-provider, multi-model.** Compare GPT-4o vs GPT-5.5 vs Claude Opus 4.7 vs Claude Sonnet 4.6 on the same prompt — side by side, in the UI or in YAML.
+- **Fail-closed quality gates.** Provider and judge outages produce an explicit failed run; infrastructure errors cannot become a false PASS.
+- **First-class guardrails.** Classified suites cover prompt injection, jailbreaks, PII leakage, tool permissions, system-prompt leakage, and role escalation.
+- **Agent trajectory checks.** Validate tool selection, argument schemas, call order, confirmation, recovery, completion, and tool budgets.
+- **Executable MCP security fixture.** A fake enterprise workspace exercises indirect injection, poisoned tool metadata, confirmation bypass, tenant isolation, and exfiltration without touching real systems.
 - **Hybrid faithfulness scoring.** Combines LLM-as-judge with embedding-grounding against source context to catch plausible-sounding hallucinations that fool the judge alone (see [Design Decisions](#design-decisions)).
 - **Schema-driven assertion editor in the playground.** Pick `faithfulness` and the UI auto-renders the right typed inputs (context textarea + threshold) — no JSON memorization.
-- **Drift detection.** Three drift types (data, concept, model-version) with baseline capture and 8-week trend reporting.
-- **SQLite append-only audit trail.** Every run is replayable and exportable to JSON or HTML.
+- **Score drift monitoring.** Baseline capture, recent-score trends, and assertion-level baseline comparisons.
+- **Lossless SQLite audit trail.** Stores model identity, provider errors, every repeated completion, tool calls, and agent steps.
+- **Release risk scoring.** Severity-weighted findings convert failed safety checks into a 0–100 risk score.
 - **CI-ready.** `--ci` flag exits non-zero on threshold breach; GitHub Actions workflow runs weekly.
 
 ---
@@ -118,6 +123,22 @@ Every assertion targets a specific LLM failure mode. The taxonomy below maps eac
 | Assertion | What It Tests |
 |---|---|
 | `max_latency_ms` | Response arrived within N milliseconds |
+
+### Agent and Tool Assertions
+| Assertion | What It Tests |
+|---|---|
+| `tool_selected` | Required tool was selected |
+| `tool_not_called` | Forbidden or unauthorized tool was not selected |
+| `tool_arguments` | Tool arguments match a JSON Schema |
+| `tool_call_order` | Tools were invoked in the expected sequence |
+| `requires_confirmation` | A sensitive tool call was preceded by confirmed approval |
+| `max_tool_calls` | Agent stayed within its tool-call budget |
+| `trajectory_completed` | Trace ended in an explicit final/completed step |
+| `recovered_after_error` | Agent recovered after an observed failed step |
+| `tool_execution_blocked` | MCP/tool execution was attempted but denied by the server |
+| `tool_execution_succeeded` | A tool reached successful execution, not merely selection |
+| `no_sensitive_data_leakage` | Configured fake secret markers did not reach observable output |
+| `tenant_isolation` | No configured forbidden-tenant markers reached observable output |
 
 ---
 
@@ -258,6 +279,16 @@ llm-eval baseline save evals/my-suite.yaml         # Capture today's run as base
 llm-eval baseline show my-suite openai             # Show current baseline scores
 llm-eval drift check my-suite openai               # Compare recent runs to baseline
 
+# Security guardrails
+llm-eval guardrails run guardrails/prompt-injection.yaml --ci
+
+# Risk and assertion-level regression analysis
+llm-eval risk show <run-id>
+llm-eval regression compare <baseline-run-id> <candidate-run-id> --ci
+
+# Execute a real local MCP stdio scenario
+llm-eval mcp run examples/vulnerable_workspace_mcp/suites/tenant-isolation.yaml --ci
+
 # Reports
 llm-eval report                                    # HTML report from latest run
 llm-eval report --run-id <id> --format json        # JSON export for a specific run
@@ -272,15 +303,17 @@ llm-eval playground --port 9000 --no-browser
 
 ---
 
-## Drift Detection
+## Drift and Regression Detection
 
-The harness tracks three standard types of model drift:
+The current detector tracks observable score drift. It does not claim to infer a
+provider's training-data distribution or determine why a score changed.
 
-| Drift Type | What Changes | Detection |
-|---|---|---|
-| Data Drift | Input distribution shifts from training | Monitor score variance over time |
-| Concept Drift | Correct outputs change as the world evolves | Track eval scores vs. ground truth |
-| Model Version Drift | Provider silently updates the model | Weekly scheduled eval, score comparison |
+| Signal | Detection |
+|---|---|
+| Composite drift | Latest score vs captured baseline |
+| Trend | Newer-run average vs older-run average |
+| Assertion regression | Newly failed, degraded, resolved, or missing checks |
+| Model identity | Persisted provider model version in the audit record |
 
 **The 5-step strategy:**
 1. Run `llm-eval baseline save` after your first successful run
@@ -332,7 +365,7 @@ Five pages:
 | Page | What You Can Do |
 |---|---|
 | **Run Eval** | Type a prompt, select providers, add assertions, run live |
-| **Load Suite** | Upload or paste a YAML suite file, run the full suite |
+| **Load Suite** | Upload or paste YAML; the backend safely parses and runs its complete semantics |
 | **History** | Browse past runs, view 8-week score trend chart |
 | **Compare** | Side-by-side provider comparison on the same run |
 | **Export** | Download JSON or HTML report for any past run |
@@ -346,9 +379,13 @@ npm run build   # builds to playground/dist/ — served by FastAPI
 
 For frontend development with hot reload:
 ```bash
-npm run dev     # Vite dev server on :5173, proxies API to :8000
-# In another terminal:
-llm-eval playground --no-browser
+# Terminal 1, from the repository root:
+python3 -m llm_eval.cli playground --no-browser
+
+# Terminal 2, while the API terminal stays running:
+cd playground
+npm install
+npm run dev     # Vite on :5173 proxies /api to the API on :8000
 ```
 
 ---
@@ -359,16 +396,21 @@ llm-eval playground --no-browser
 llm-eval-harness/
 ├── llm_eval/
 │   ├── adapters/          # BaseAdapter + OpenAI + Anthropic (pluggable pattern)
-│   ├── evaluators/        # 15 assertion types across 5 modules
+│   ├── evaluators/        # Output, safety, operational, and agent assertions
+│   ├── guardrails/        # Classified security-suite orchestration
+│   ├── quality/           # Risk scoring + assertion regression comparison
 │   ├── runner/            # YAML loader + eval orchestrator
 │   ├── scorer/            # Weighted composite scoring (40/30/20/10)
 │   ├── reporters/         # Terminal (rich) + JSON + HTML (Chart.js)
-│   ├── drift/             # Baseline capture + 3-type drift detection
-│   ├── storage/           # SQLite append-only audit trail
+│   ├── drift/             # Baseline score and trend monitoring
+│   ├── storage/           # SQLite lossless audit trail
 │   ├── api/               # FastAPI REST API + SPA fallback
 │   └── cli.py             # Typer CLI (llm-eval)
 ├── playground/            # React 18 + Vite + Tailwind + shadcn/ui
 ├── evals/                 # Example YAML suites
+├── guardrails/            # Six bundled security suites
+├── examples/
+│   └── vulnerable_workspace_mcp/ # Fake-data MCP server + adversarial scenarios
 ├── tests/                 # pytest unit + integration tests
 └── .github/workflows/     # Weekly eval + pytest on push
 ```
@@ -379,8 +421,13 @@ llm-eval-harness/
 
 ```bash
 pip install -e ".[dev]"
-pytest tests/ -v
+python3 -m pytest tests/ -q
 ```
+
+Every pytest run automatically writes a self-contained HTML summary to
+`reports/pytest_report.html` and prints its absolute path at the end of the
+terminal output. Open it on macOS with `open reports/pytest_report.html`.
+Set `LLM_EVAL_PYTEST_HTML=0` to disable report generation.
 
 Tests use mock adapters — no API keys required to run the test suite.
 
@@ -395,13 +442,37 @@ Every provider implements two methods (`complete`, `name`). Adding a third provi
 A binary pass/fail can't tell you if you're trending toward a problem. A score of 0.81 that was 0.95 three months ago is worth investigating even if it's technically "passing." The 4-component weighted system surfaces the degradation before it crosses a threshold.
 
 **Why SQLite?**
-Zero infrastructure, works offline, portable, survives restarts. The audit trail requirement (append-only, all runs logged with model version + timestamp) is satisfied without running a separate database process.
+Zero infrastructure, works offline, portable, survives restarts. Canonical audit tables preserve each evaluation, assertion, repeated completion, model version, provider error, tool call, and agent step. The older flattened result table remains for backward compatibility.
 
 **Why temperature 0.1?**
 For QA applications, 0–0.3 is the standard range — low temperature produces more consistent outputs, which makes pass/fail assertions more reliable. This is a deliberate, tested configuration choice — not a default left unchanged.
 
 **Why hybrid faithfulness (judge + embedding grounding)?**
 A pure LLM-as-judge for faithfulness misses a specific failure mode: a response that is plausible-sounding but fabricates details not in the source context. In practice, judges rate fluent fabrication at 1.0. The harness's `faithfulness` evaluator computes both an LLM judge score and a per-sentence max-cosine-similarity grounding score against the context, then returns `min(judge, grounding)`. This catches hallucinations the judge alone would pass. The assertion detail surfaces both subscores (`judge=1.00, grounding=0.55`) so failures are diagnosable.
+
+---
+
+## Production Boundaries
+
+- The playground binds to `127.0.0.1` by default. Add authentication, rate limits,
+  concurrency controls, and spend limits before exposing it on a network.
+- CORS controls browser origins; it is not authentication.
+- Prompts, responses, tool arguments, and traces may contain sensitive data. Keep
+  the SQLite database and exported reports in an appropriately protected location.
+- Built-in guardrail prompts are starter regression cases, not a replacement for
+  threat modeling, human red teaming, or provider-specific safety review.
+- Model catalogs and provider capabilities change. Pin models in suites and review
+  provider documentation before release-critical runs.
+
+## Product Direction
+
+This project intentionally competes on developer workflow rather than metric count:
+
+> Define expected AI behavior as code, run it like a test suite, fail closed in CI,
+> and keep enough evidence to explain every quality-gate decision.
+
+The extension points remain deliberately small: add an adapter, register an
+evaluator, or create a classified guardrail suite without changing the runner.
 
 ---
 

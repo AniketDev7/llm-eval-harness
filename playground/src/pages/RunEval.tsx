@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Plus, Play, Trash2, Loader2 } from "lucide-react";
-import { runEval, RunRecord, ProviderConfig } from "../api/client";
+import { apiErrorMessage, runEval, RunRecord, ProviderConfig } from "../api/client";
 import ScoreCard from "../components/ScoreCard";
 import AssertionResultRow from "../components/AssertionResult";
 import ProviderBadge from "../components/ProviderBadge";
@@ -200,8 +200,8 @@ export default function RunEval() {
       };
       const res = await runEval(payload);
       setRecords(res.runs);
-    } catch (e: any) {
-      setError(e?.response?.data?.detail ?? e.message ?? "Run failed");
+    } catch (error: unknown) {
+      setError(apiErrorMessage(error, "Eval run failed"));
     } finally {
       setLoading(false);
     }

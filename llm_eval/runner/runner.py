@@ -23,6 +23,24 @@ def load_suite(path: str | Path) -> EvalSuite:
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
+    return parse_suite(data)
+
+
+def load_suite_text(text: str) -> EvalSuite:
+    """Safely parse an in-memory YAML suite, used by the playground API."""
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"invalid suite YAML: {exc}") from exc
+    return parse_suite(data)
+
+
+def parse_suite(data: object) -> EvalSuite:
+    """Validate an already-decoded suite mapping."""
+
+    if not isinstance(data, dict):
+        raise ValueError("suite YAML must contain a mapping at the document root")
+
     mc = data.get("model_config", {}) or {}
     thresholds_data = data.get("thresholds", {}) or {}
 
@@ -125,7 +143,7 @@ class Runner:
 
         for case in self.suite.evals:
             prompt = self._render_prompt(case)
-            n_runs = case.runs if case.runs > 1 else 1
+            n_runs = case.runs
 
             completions: list[CompletionResult] = []
             for _ in range(n_runs):
@@ -136,9 +154,20 @@ class Runner:
             # For non-consistency cases we evaluate against the first completion.
             primary = completions[0]
 
-            assertion_results = self._run_assertions(
-                case.assertions, primary, case, all_response_texts,
-            )
+            completion_errors = [c.error for c in completions if c.error]
+            if completion_errors:
+                # Infrastructure failures are not model output and must never be
+                # allowed to satisfy assertions such as max_length on an empty string.
+                assertion_results = [AssertionResult(
+                    type="provider_error",
+                    passed=False,
+                    score=0.0,
+                    detail="; ".join(completion_errors),
+                )]
+            else:
+                assertion_results = self._run_assertions(
+                    case.assertions, primary, case, all_response_texts,
+                )
 
             eval_results.append(EvalResult(
                 eval_name=case.name,
@@ -148,6 +177,8 @@ class Runner:
                 response=primary.text,
                 latency_ms=primary.latency_ms,
                 tokens_used=primary.tokens_used,
+                model_version=primary.model_version,
+                completions=completions,
                 assertions=assertion_results,
                 error=primary.error,
             ))

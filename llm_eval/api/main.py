@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -9,11 +10,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 
-from llm_eval.api.routes import runs, results, history, compare, export
+from llm_eval.api.routes import runs, results, history, compare, export, quality
 from llm_eval.storage.db import init_db
 
 
-app = FastAPI(title="llm-eval-harness", version="1.0.0")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(title="llm-eval-harness", version="1.0.0", lifespan=lifespan)
 
 # /api/run spends real API credits, so we deny cross-origin browser calls by
 # default. The Vite dev server origin is allowed out of the box; override with
@@ -32,16 +39,12 @@ app.add_middleware(
 )
 
 
-@app.on_event("startup")
-def _startup() -> None:
-    init_db()
-
-
 app.include_router(runs.router, prefix="/api")
 app.include_router(results.router, prefix="/api")
 app.include_router(history.router, prefix="/api")
 app.include_router(compare.router, prefix="/api")
 app.include_router(export.router, prefix="/api")
+app.include_router(quality.router, prefix="/api")
 
 
 @app.get("/api/health")

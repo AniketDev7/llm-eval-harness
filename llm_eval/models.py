@@ -6,20 +6,41 @@ YAML -> Suite -> Runner -> Evaluators -> RunRecord -> Storage -> Reporters.
 from __future__ import annotations
 
 from typing import Any, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ModelConfig(BaseModel):
     """Provider-agnostic generation config."""
-    temperature: float = 0.1
-    max_tokens: int = 1000
+    temperature: float = Field(default=0.1, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=1000, ge=1)
 
 
 class Thresholds(BaseModel):
     """Composite-score thresholds for PASS/REVIEW/ALERT/PAUSE."""
-    review: float = 0.80
-    alert: float = 0.70
-    pause: float = 0.60
+    review: float = Field(default=0.80, ge=0.0, le=1.0)
+    alert: float = Field(default=0.70, ge=0.0, le=1.0)
+    pause: float = Field(default=0.60, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def validate_order(self) -> "Thresholds":
+        if not self.review >= self.alert >= self.pause:
+            raise ValueError("thresholds must satisfy review >= alert >= pause")
+        return self
+
+
+class ToolCall(BaseModel):
+    """A structured tool invocation emitted by an agent-capable model."""
+    name: str = Field(min_length=1)
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    call_id: str = ""
+
+
+class AgentStep(BaseModel):
+    """One observable step in an agent trajectory."""
+    kind: str = Field(min_length=1)
+    name: str = ""
+    content: str = ""
+    success: Optional[bool] = None
 
 
 class CompletionResult(BaseModel):
@@ -29,6 +50,8 @@ class CompletionResult(BaseModel):
     tokens_used: int = 0
     model_version: str = ""
     error: Optional[str] = None
+    tool_calls: list[ToolCall] = Field(default_factory=list)
+    trajectory: list[AgentStep] = Field(default_factory=list)
 
 
 class Assertion(BaseModel):
@@ -37,7 +60,7 @@ class Assertion(BaseModel):
     `type` selects the evaluator; all other fields are evaluator-specific
     and stored in `params`.
     """
-    type: str
+    type: str = Field(min_length=1)
     params: dict[str, Any] = Field(default_factory=dict)
 
     model_config = {"extra": "allow"}
@@ -56,24 +79,24 @@ class EvalCase(BaseModel):
     prompt: str
     variables: dict[str, Any] = Field(default_factory=dict)
     assertions: list[Assertion] = Field(default_factory=list)
-    runs: int = 1
+    runs: int = Field(default=1, ge=1)
 
 
 class EvalSuite(BaseModel):
     """A full suite of eval cases."""
     name: str
     version: str = "1.0"
-    providers: list[str] = Field(default_factory=lambda: ["openai"])
+    providers: list[str] = Field(default_factory=lambda: ["openai"], min_length=1)
     model_config_settings: ModelConfig = Field(default_factory=ModelConfig)
     thresholds: Thresholds = Field(default_factory=Thresholds)
-    evals: list[EvalCase] = Field(default_factory=list)
+    evals: list[EvalCase] = Field(default_factory=list, min_length=1)
 
 
 class AssertionResult(BaseModel):
     """The result of evaluating a single assertion."""
     type: str
     passed: bool
-    score: float
+    score: float = Field(ge=0.0, le=1.0)
     detail: str = ""
 
 
@@ -86,6 +109,8 @@ class EvalResult(BaseModel):
     response: str
     latency_ms: int
     tokens_used: int
+    model_version: str = ""
+    completions: list[CompletionResult] = Field(default_factory=list)
     assertions: list[AssertionResult] = Field(default_factory=list)
     error: Optional[str] = None
 
@@ -97,11 +122,11 @@ class RunRecord(BaseModel):
     suite_name: str
     suite_version: str
     provider: str
-    composite_score: float
-    coverage_score: float
-    accuracy_score: float
-    format_score: float
-    hallucination_score: float
+    composite_score: float = Field(ge=0.0, le=1.0)
+    coverage_score: float = Field(ge=0.0, le=1.0)
+    accuracy_score: float = Field(ge=0.0, le=1.0)
+    format_score: float = Field(ge=0.0, le=1.0)
+    hallucination_score: float = Field(ge=0.0, le=1.0)
     threshold_status: str
     results: list[EvalResult] = Field(default_factory=list)
 

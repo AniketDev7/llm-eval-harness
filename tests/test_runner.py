@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 
 from llm_eval.adapters.base import BaseAdapter
-from llm_eval.models import CompletionResult, ModelConfig, RunRecord
-from llm_eval.runner.runner import Runner, load_suite
-from llm_eval.storage.db import save_run, list_runs, init_db
+from llm_eval.models import AgentStep, CompletionResult, ModelConfig, RunRecord, ToolCall
+from llm_eval.runner.runner import Runner, load_suite, load_suite_text
+from llm_eval.storage.db import get_audit_results_for_run, save_run, list_runs, init_db
 
 
 class MockAdapter(BaseAdapter):
@@ -25,6 +25,29 @@ class MockAdapter(BaseAdapter):
     def complete(self, prompt: str, config: ModelConfig) -> CompletionResult:
         return CompletionResult(
             text=self.text, latency_ms=50, tokens_used=10, model_version="mock-v1",
+        )
+
+
+class ErrorAdapter(BaseAdapter):
+    def name(self) -> str:
+        return "error"
+
+    def complete(self, prompt: str, config: ModelConfig) -> CompletionResult:
+        return CompletionResult(text="", latency_ms=1, error="provider unavailable")
+
+
+class AgentAdapter(BaseAdapter):
+    def name(self) -> str:
+        return "agent"
+
+    def complete(self, prompt: str, config: ModelConfig) -> CompletionResult:
+        return CompletionResult(
+            text="Looked it up.", latency_ms=2, model_version="agent-v1",
+            tool_calls=[ToolCall(name="lookup", arguments={"id": "42"})],
+            trajectory=[
+                AgentStep(kind="tool_call", name="lookup", success=True),
+                AgentStep(kind="final", content="Looked it up."),
+            ],
         )
 
 
@@ -82,6 +105,15 @@ def test_load_suite_parses_yaml(yaml_path):
     assert suite.providers == ["mock"]
     assert len(suite.evals) == 2
     assert suite.evals[0].assertions[0].type == "json_schema"
+
+
+def test_load_suite_text_preserves_full_suite_semantics():
+    suite = load_suite_text(YAML_SUITE)
+    assert suite.providers == ["mock"]
+    assert suite.model_config_settings.max_tokens == 100
+    assert suite.thresholds.review == 0.8
+    assert len(suite.evals) == 2
+    assert len(suite.evals[1].assertions) == 2
 
 
 def test_runner_executes_with_mock_adapter(yaml_path):
@@ -167,3 +199,53 @@ evals:
     runner = Runner(suite, adapters={"mock": MockAdapter()})
     records = runner.run()
     assert records[0].results[0].prompt == "Greet Alice."
+
+
+def test_provider_error_can_never_score_pass(yaml_path):
+    suite = load_suite(yaml_path)
+    suite.providers = ["error"]
+    record = Runner(suite, adapters={"error": ErrorAdapter()}).run()[0]
+
+    assert record.composite_score == 0.0
+    assert record.threshold_status == "PAUSE"
+    assert all(r.error == "provider unavailable" for r in record.results)
+    assert all(r.assertions[0].type == "provider_error" for r in record.results)
+
+
+def test_audit_trail_keeps_model_and_every_completion(tmp_db):
+    suite = load_suite(Path(__file__).parent.parent / "evals" / "quickstart.yaml")
+    suite.providers = ["mock"]
+    suite.evals = [suite.evals[0]]
+    suite.evals[0].runs = 3
+    record = Runner(suite, adapters={"mock": MockAdapter()}).run()[0]
+    save_run(record)
+
+    audit = get_audit_results_for_run(record.id)
+    assert len(audit) == 1
+    assert audit[0]["model_version"] == "mock-v1"
+    assert len(audit[0]["completions"]) == 3
+
+
+def test_audit_trail_keeps_cases_without_assertions(tmp_db):
+    suite = load_suite(Path(__file__).parent.parent / "evals" / "quickstart.yaml")
+    suite.providers = ["mock"]
+    suite.evals = [suite.evals[0]]
+    suite.evals[0].assertions = []
+    record = Runner(suite, adapters={"mock": MockAdapter()}).run()[0]
+    save_run(record)
+
+    audit = get_audit_results_for_run(record.id)
+    assert len(audit) == 1
+    assert audit[0]["assertions"] == []
+
+
+def test_audit_trail_keeps_structured_agent_trace(tmp_db, yaml_path):
+    suite = load_suite(yaml_path)
+    suite.providers = ["agent"]
+    suite.evals = [suite.evals[0]]
+    record = Runner(suite, adapters={"agent": AgentAdapter()}).run()[0]
+    save_run(record)
+
+    completion_row = get_audit_results_for_run(record.id)[0]["completions"][0]
+    assert completion_row["tool_calls"][0]["name"] == "lookup"
+    assert completion_row["trajectory"][-1]["kind"] == "final"
