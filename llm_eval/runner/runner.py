@@ -23,6 +23,9 @@ def load_suite(path: str | Path) -> EvalSuite:
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
+    if not isinstance(data, dict):
+        raise ValueError("suite YAML must contain a mapping at the document root")
+
     mc = data.get("model_config", {}) or {}
     thresholds_data = data.get("thresholds", {}) or {}
 
@@ -125,7 +128,7 @@ class Runner:
 
         for case in self.suite.evals:
             prompt = self._render_prompt(case)
-            n_runs = case.runs if case.runs > 1 else 1
+            n_runs = case.runs
 
             completions: list[CompletionResult] = []
             for _ in range(n_runs):
@@ -136,9 +139,20 @@ class Runner:
             # For non-consistency cases we evaluate against the first completion.
             primary = completions[0]
 
-            assertion_results = self._run_assertions(
-                case.assertions, primary, case, all_response_texts,
-            )
+            completion_errors = [c.error for c in completions if c.error]
+            if completion_errors:
+                # Infrastructure failures are not model output and must never be
+                # allowed to satisfy assertions such as max_length on an empty string.
+                assertion_results = [AssertionResult(
+                    type="provider_error",
+                    passed=False,
+                    score=0.0,
+                    detail="; ".join(completion_errors),
+                )]
+            else:
+                assertion_results = self._run_assertions(
+                    case.assertions, primary, case, all_response_texts,
+                )
 
             eval_results.append(EvalResult(
                 eval_name=case.name,

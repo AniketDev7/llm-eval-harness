@@ -31,6 +31,12 @@ def score_run(eval_results: list[EvalResult]) -> dict[str, float]:
         return {"composite": 0.0, "coverage": 0.0, "accuracy": 0.0,
                 "format": 0.0, "hallucination": 0.0}
 
+    # A provider outage is an invalid evaluation run, not a low-quality model
+    # response. Force every score to zero so CI cannot report a false green.
+    if any(r.error for r in eval_results):
+        return {"composite": 0.0, "coverage": 0.0, "accuracy": 0.0,
+                "format": 0.0, "hallucination": 0.0}
+
     cases_with_pass = sum(
         1 for r in eval_results
         if any(a.passed for a in r.assertions)

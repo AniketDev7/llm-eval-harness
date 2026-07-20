@@ -28,6 +28,14 @@ class MockAdapter(BaseAdapter):
         )
 
 
+class ErrorAdapter(BaseAdapter):
+    def name(self) -> str:
+        return "error"
+
+    def complete(self, prompt: str, config: ModelConfig) -> CompletionResult:
+        return CompletionResult(text="", latency_ms=1, error="provider unavailable")
+
+
 YAML_SUITE = """
 name: test-suite
 version: "1.0"
@@ -167,3 +175,14 @@ evals:
     runner = Runner(suite, adapters={"mock": MockAdapter()})
     records = runner.run()
     assert records[0].results[0].prompt == "Greet Alice."
+
+
+def test_provider_error_can_never_score_pass(yaml_path):
+    suite = load_suite(yaml_path)
+    suite.providers = ["error"]
+    record = Runner(suite, adapters={"error": ErrorAdapter()}).run()[0]
+
+    assert record.composite_score == 0.0
+    assert record.threshold_status == "PAUSE"
+    assert all(r.error == "provider unavailable" for r in record.results)
+    assert all(r.assertions[0].type == "provider_error" for r in record.results)
