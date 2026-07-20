@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Upload, Play, Loader2 } from "lucide-react";
-import { api, RunRecord } from "../api/client";
+import { api, apiErrorMessage, RunRecord } from "../api/client";
 import ScoreCard from "../components/ScoreCard";
 import AssertionResultRow from "../components/AssertionResult";
 
@@ -48,8 +48,8 @@ export default function LoadSuite() {
       const response = await api.post("/run-suite", { yaml_text: yamlText });
       setRecords(response.data.runs);
       setLog((current) => [...current, `completed: ${response.data.runs.length} provider run(s)`]);
-    } catch (e: any) {
-      setError(e?.response?.data?.detail ?? e?.message ?? "Run failed");
+    } catch (error: unknown) {
+      setError(apiErrorMessage(error, "Suite run failed"));
     } finally {
       setLoading(false);
     }

@@ -73,4 +73,8 @@ fileignoreconfig:
   checksum: 5b55d90f7c5fd009088bab172bc16f13e1d41184e0e9f444fd476c761e72729e
 - filename: llm_eval/mcp_support/executor.py
   checksum: 8a22a0571902b12c9e3f4db9a47c6235b63fb56022af1cab1a9aa69325cfed56
+- filename: tests/test_pytest_reporter.py
+  checksum: cb2323e2efc682d428bf35261d9275bfde5997abf73e21323af1f4d9a8f25ac5
+- filename: llm_eval/reporters/pytest_reporter.py
+  checksum: 2c457611767f3e6a5a9d0ad80c4df0b14ad26c175090b47a2e1c2bb793fbeaf4
 version: "1.0"
