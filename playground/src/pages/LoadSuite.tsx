@@ -25,16 +25,6 @@ evals:
         value: 200
 `;
 
-interface YamlEval { name: string; category: string; prompt: string; assertions: any[]; runs?: number; variables?: Record<string, any>; }
-interface YamlSuite { name: string; version?: string; providers?: string[]; model_config?: any; thresholds?: any; evals: YamlEval[]; }
-
-function parseYaml(text: string): YamlSuite {
-  // Minimal YAML parser would be ideal; for the playground we ship a JSON-equivalent endpoint
-  // by asking the user to POST raw text. To keep things simple, we evaluate each `evals[i]` as
-  // a single /api/run call.
-  throw new Error("Suite must be uploaded as individual /api/run calls; see notes below.");
-}
-
 export default function LoadSuite() {
   const [yamlText, setYamlText] = useState(SAMPLE);
   const [loading, setLoading] = useState(false);
@@ -48,36 +38,18 @@ export default function LoadSuite() {
     f.text().then(setYamlText);
   }
 
-  /**
-   * We don't ship a YAML parser in the browser; instead, this page demonstrates the workflow
-   * by extracting the prompts via a simple regex split and invoking /api/run per case.
-   * For full suite runs, use the CLI: `llm-eval run path/to/suite.yaml`
-   */
   async function onRun() {
     setError(null);
     setLoading(true);
     setRecords([]);
     setLog([]);
     try {
-      // Naive: split into per-eval cases using `- name:` markers and run each via /api/run
-      const cases = yamlText.split(/\n  - name:\s*/).slice(1);
-      let providersMatch = yamlText.match(/providers:\s*\[([^\]]+)\]/);
-      const providers = providersMatch
-        ? providersMatch[1].split(",").map((p) => p.trim().replace(/['"\s]/g, ""))
-        : ["openai"];
-
-      for (const c of cases) {
-        const nameMatch = c.match(/^([\w_\-]+)/);
-        const promptMatch = c.match(/prompt:\s*["']([^"']+)["']/) || c.match(/prompt:\s*\|\s*\n([\s\S]+?)(?:\n\s{4}[a-z]|\n  -|$)/);
-        if (!promptMatch) continue;
-        const name = nameMatch ? nameMatch[1] : "case";
-        const prompt = promptMatch[1].trim();
-        setLog((l) => [...l, `running: ${name}`]);
-        const r = await api.post("/run", { prompt, providers, assertions: [{ type: "min_length", value: 1 }] });
-        setRecords((rs) => [...rs, ...r.data.runs]);
-      }
+      setLog(["validating suite", "running configured providers and assertions"]);
+      const response = await api.post("/run-suite", { yaml_text: yamlText });
+      setRecords(response.data.runs);
+      setLog((current) => [...current, `completed: ${response.data.runs.length} provider run(s)`]);
     } catch (e: any) {
-      setError(e?.message ?? "Run failed");
+      setError(e?.response?.data?.detail ?? e?.message ?? "Run failed");
     } finally {
       setLoading(false);
     }

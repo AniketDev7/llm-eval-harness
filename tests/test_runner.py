@@ -9,7 +9,7 @@ import pytest
 
 from llm_eval.adapters.base import BaseAdapter
 from llm_eval.models import AgentStep, CompletionResult, ModelConfig, RunRecord, ToolCall
-from llm_eval.runner.runner import Runner, load_suite
+from llm_eval.runner.runner import Runner, load_suite, load_suite_text
 from llm_eval.storage.db import get_audit_results_for_run, save_run, list_runs, init_db
 
 
@@ -105,6 +105,15 @@ def test_load_suite_parses_yaml(yaml_path):
     assert suite.providers == ["mock"]
     assert len(suite.evals) == 2
     assert suite.evals[0].assertions[0].type == "json_schema"
+
+
+def test_load_suite_text_preserves_full_suite_semantics():
+    suite = load_suite_text(YAML_SUITE)
+    assert suite.providers == ["mock"]
+    assert suite.model_config_settings.max_tokens == 100
+    assert suite.thresholds.review == 0.8
+    assert len(suite.evals) == 2
+    assert len(suite.evals[1].assertions) == 2
 
 
 def test_runner_executes_with_mock_adapter(yaml_path):

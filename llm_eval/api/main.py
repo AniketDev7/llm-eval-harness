@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -13,7 +14,13 @@ from llm_eval.api.routes import runs, results, history, compare, export, quality
 from llm_eval.storage.db import init_db
 
 
-app = FastAPI(title="llm-eval-harness", version="1.0.0")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(title="llm-eval-harness", version="1.0.0", lifespan=lifespan)
 
 # /api/run spends real API credits, so we deny cross-origin browser calls by
 # default. The Vite dev server origin is allowed out of the box; override with
@@ -30,11 +37,6 @@ app.add_middleware(
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type", "Authorization"],
 )
-
-
-@app.on_event("startup")
-def _startup() -> None:
-    init_db()
 
 
 app.include_router(runs.router, prefix="/api")
