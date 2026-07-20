@@ -64,3 +64,15 @@ def test_coverage_partial():
     ]
     scores = score_run(results)
     assert scores["coverage"] == 0.5
+
+
+def test_provider_error_forces_zero_score():
+    result = _result("error", [])
+    result.error = "provider unavailable"
+    assert score_run([result]) == {
+        "composite": 0.0,
+        "coverage": 0.0,
+        "accuracy": 0.0,
+        "format": 0.0,
+        "hallucination": 0.0,
+    }

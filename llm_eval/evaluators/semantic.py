@@ -67,7 +67,10 @@ def eval_semantic_similarity(assertion: Assertion, result: CompletionResult, con
 def _judge_score(rubric: str, text: str) -> float:
     """Call the first available LLM provider as a judge.
 
-    Returns a float 0-1 parsed from the model's reply, or 0.5 on failure.
+    Returns a float 0-1 parsed from the model's reply.
+
+    Judge infrastructure failures raise an exception so the runner records a
+    failed evaluator instead of silently turning an outage into a score.
     """
     from llm_eval.adapters import get_adapter
     from llm_eval.models import ModelConfig
@@ -81,18 +84,25 @@ def _judge_score(rubric: str, text: str) -> float:
     )
 
     # Prefer OpenAI if key present, else Anthropic.
-    provider = "openai" if os.getenv("OPENAI_API_KEY") else "anthropic"
+    if os.getenv("OPENAI_API_KEY"):
+        provider = "openai"
+    elif os.getenv("ANTHROPIC_API_KEY"):
+        provider = "anthropic"
+    else:
+        raise RuntimeError("No API key configured for LLM judge")
     try:
         adapter = get_adapter(provider)
         out = adapter.complete(judge_prompt, ModelConfig(temperature=0.0, max_tokens=10))
         if out.error:
-            return 0.5
+            raise RuntimeError(f"LLM judge failed: {out.error}")
         match = re.search(r"[01](?:\.\d+)?", out.text)
         if not match:
-            return 0.5
+            raise RuntimeError(f"LLM judge returned an invalid score: {out.text[:80]!r}")
         return max(0.0, min(1.0, float(match.group(0))))
-    except Exception:  # noqa: BLE001
-        return 0.5
+    except RuntimeError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"LLM judge request failed: {exc}") from exc
 
 
 def eval_answer_relevancy(assertion: Assertion, result: CompletionResult, context: dict) -> AssertionResult:
