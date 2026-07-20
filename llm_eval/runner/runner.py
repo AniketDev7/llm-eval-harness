@@ -23,6 +23,21 @@ def load_suite(path: str | Path) -> EvalSuite:
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
+    return parse_suite(data)
+
+
+def load_suite_text(text: str) -> EvalSuite:
+    """Safely parse an in-memory YAML suite, used by the playground API."""
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"invalid suite YAML: {exc}") from exc
+    return parse_suite(data)
+
+
+def parse_suite(data: object) -> EvalSuite:
+    """Validate an already-decoded suite mapping."""
+
     if not isinstance(data, dict):
         raise ValueError("suite YAML must contain a mapping at the document root")
 

@@ -1,7 +1,7 @@
 [project]
 name = "llm-eval-harness"
 version = "1.0.0"
-description = "A framework for testing LLM outputs - prompt regression, response validation, drift detection"
+description = "Developer-first AI quality gates for LLM, guardrail, and agent regression testing"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Aniket Shikhare" }]

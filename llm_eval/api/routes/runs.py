@@ -14,7 +14,7 @@ from llm_eval.models import (
     Assertion, AssertionResult, EvalCase, EvalResult, EvalSuite,
     ModelConfig, RunRecord, Thresholds,
 )
-from llm_eval.runner.runner import Runner
+from llm_eval.runner.runner import Runner, load_suite_text
 from llm_eval.scorer.scorer import score_run, evaluate_threshold
 from llm_eval.storage.db import (
     get_audit_results_for_run, get_results_for_run, get_run, list_runs, save_run,
@@ -35,6 +35,11 @@ class RunRequest(BaseModel):
     assertions: list[dict[str, Any]] = Field(default_factory=list)
     model_config_settings: dict[str, Any] = Field(default_factory=dict)
     variables: dict[str, Any] = Field(default_factory=dict)
+
+
+class SuiteRunRequest(BaseModel):
+    yaml_text: str = Field(min_length=1, max_length=1_000_000)
+    provider: str | None = None
 
 
 @router.post("/run")
@@ -79,6 +84,23 @@ def run_eval(req: RunRequest) -> dict:
         save_run(rec)
 
     return {"runs": [r.model_dump() for r in records]}
+
+
+@router.post("/run-suite")
+def run_suite(req: SuiteRunRequest) -> dict:
+    """Parse and execute a complete YAML suite without changing its semantics."""
+    try:
+        suite = load_suite_text(req.yaml_text)
+        if req.provider:
+            suite.providers = [req.provider]
+        records = Runner(suite).run()
+        for record in records:
+            save_run(record)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"runs": [record.model_dump() for record in records]}
 
 
 @router.get("/runs")
