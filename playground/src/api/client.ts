@@ -5,6 +5,34 @@ export const api = axios.create({
   timeout: 120_000,
 });
 
+export function apiErrorMessage(error: unknown, fallback = "Request failed"): string {
+  if (!axios.isAxiosError(error)) {
+    return error instanceof Error ? error.message : fallback;
+  }
+
+  const detail = error.response?.data?.detail;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => item?.msg ?? String(item))
+      .filter(Boolean)
+      .join("; ");
+  }
+
+  // When Vite cannot connect to the API proxy target it returns a plain 500,
+  // not FastAPI's normal JSON error envelope.
+  const data = error.response?.data;
+  const plainProxyFailure =
+    error.response?.status === 500 &&
+    (typeof data !== "object" || data === null);
+  if (!error.response || plainProxyFailure) {
+    return "Cannot reach the API backend. Start it in another terminal with: " +
+      "python3 -m llm_eval.cli playground --no-browser";
+  }
+
+  return `${fallback} (HTTP ${error.response.status})`;
+}
+
 export interface AssertionResult {
   type: string;
   passed: boolean;

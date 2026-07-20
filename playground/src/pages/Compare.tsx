@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { compareRuns, listRuns, RunRow } from "../api/client";
+import { apiErrorMessage, compareRuns, listRuns, RunRow } from "../api/client";
 import ScoreCard from "../components/ScoreCard";
 import ProviderBadge from "../components/ProviderBadge";
 
@@ -24,8 +24,8 @@ export default function Compare() {
     try {
       const res = await compareRuns(a, b);
       setData(res);
-    } catch (e: any) {
-      setError(e?.message ?? "Compare failed");
+    } catch (error: unknown) {
+      setError(apiErrorMessage(error, "Compare failed"));
     }
   }
 

@@ -379,9 +379,13 @@ npm run build   # builds to playground/dist/ — served by FastAPI
 
 For frontend development with hot reload:
 ```bash
-npm run dev     # Vite dev server on :5173, proxies API to :8000
-# In another terminal:
-llm-eval playground --no-browser
+# Terminal 1, from the repository root:
+python3 -m llm_eval.cli playground --no-browser
+
+# Terminal 2, while the API terminal stays running:
+cd playground
+npm install
+npm run dev     # Vite on :5173 proxies /api to the API on :8000
 ```
 
 ---
@@ -417,8 +421,13 @@ llm-eval-harness/
 
 ```bash
 pip install -e ".[dev]"
-pytest tests/ -v
+python3 -m pytest tests/ -q
 ```
+
+Every pytest run automatically writes a self-contained HTML summary to
+`reports/pytest_report.html` and prints its absolute path at the end of the
+terminal output. Open it on macOS with `open reports/pytest_report.html`.
+Set `LLM_EVAL_PYTEST_HTML=0` to disable report generation.
 
 Tests use mock adapters — no API keys required to run the test suite.
 

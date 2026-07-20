@@ -30,11 +30,11 @@ class OpenAIAdapter(BaseAdapter):
         return "openai"
 
     def complete(self, prompt: str, config: ModelConfig) -> CompletionResult:
-        client = self._get_client()
         start = time.time()
 
         for attempt in range(2):
             try:
+                client = self._get_client()
                 response = client.chat.completions.create(
                     model=self.model,
                     messages=[{"role": "user", "content": prompt}],

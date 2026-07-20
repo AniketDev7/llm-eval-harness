@@ -34,11 +34,11 @@ class AnthropicAdapter(BaseAdapter):
         return not any(self.model.startswith(m) for m in self._NO_TEMPERATURE_MODELS)
 
     def complete(self, prompt: str, config: ModelConfig) -> CompletionResult:
-        client = self._get_client()
         start = time.time()
 
         for attempt in range(2):
             try:
+                client = self._get_client()
                 kwargs: dict = {
                     "model": self.model,
                     "max_tokens": config.max_tokens,

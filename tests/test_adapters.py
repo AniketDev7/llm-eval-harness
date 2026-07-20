@@ -66,6 +66,15 @@ def test_openai_handles_errors_gracefully(model_config):
     assert out.text == ""
 
 
+def test_openai_handles_client_initialization_errors(model_config):
+    adapter = OpenAIAdapter()
+    with patch.object(adapter, "_get_client", side_effect=RuntimeError("missing key")):
+        out = adapter.complete("hi", model_config)
+
+    assert out.error == "RuntimeError: missing key"
+    assert out.text == ""
+
+
 def test_anthropic_returns_completion_result(model_config):
     adapter = AnthropicAdapter()
     mock_client = MagicMock()
@@ -89,6 +98,15 @@ def test_anthropic_handles_errors_gracefully(model_config):
     out = adapter.complete("hi", model_config)
 
     assert out.error is not None
+    assert out.text == ""
+
+
+def test_anthropic_handles_client_initialization_errors(model_config):
+    adapter = AnthropicAdapter()
+    with patch.object(adapter, "_get_client", side_effect=RuntimeError("missing key")):
+        out = adapter.complete("hi", model_config)
+
+    assert out.error == "RuntimeError: missing key"
     assert out.text == ""
 
 
