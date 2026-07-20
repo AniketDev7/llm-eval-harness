@@ -24,7 +24,7 @@ fileignoreconfig:
 - filename: llm_eval/adapters/openai_adapter.py
   checksum: bc27a97bef80d1a6f6be0e24cb2fb85191344b36ee39ec59d74bfbb5a0614484
 - filename: README.md
-  checksum: 82d98b1b0cf6eabe8157b3b0bb885582b9c2cb8ec94987f3bf1d7a8ac57579cd
+  checksum: 03ee5b81224bfd2c7be86c6efa1e96ed2a0ab9199e1affc071939d49660b206d
 - filename: tests/test_runner.py
   checksum: 0f17a07919c24cad550b0a1275df4204d5e3c007852b7471343b5f1afaae9e5f
 - filename: llm_eval/api/routes/export.py
@@ -67,4 +67,10 @@ fileignoreconfig:
   checksum: ecb9472b1c5c79ee7bb47a5a1ddfb43d1c774aacb9db4ed0708c61665f1d732e
 - filename: tests/test_api.py
   checksum: b7cddfd0d189b5f2e7603a254e4cbefd29413f21004ad481e3a7c56408ad7c93
+- filename: examples/vulnerable_workspace_mcp/suites/data-exfiltration.yaml
+  checksum: 85ea25bc14d56656c8a6c1233f93edcfdee27103b738911bb96845f8b75db918
+- filename: llm_eval/mcp_support/fixtures/workspace.py
+  checksum: 5b55d90f7c5fd009088bab172bc16f13e1d41184e0e9f444fd476c761e72729e
+- filename: llm_eval/mcp_support/executor.py
+  checksum: 8a22a0571902b12c9e3f4db9a47c6235b63fb56022af1cab1a9aa69325cfed56
 version: "1.0"

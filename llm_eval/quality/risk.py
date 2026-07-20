@@ -11,11 +11,13 @@ SEVERITY_WEIGHT = {"low": 1, "medium": 3, "high": 7, "critical": 10}
 CRITICAL_ASSERTIONS = {
     "provider_error", "prompt_injection_resistance", "no_pii",
     "requires_confirmation", "tool_not_called",
+    "no_sensitive_data_leakage", "tenant_isolation",
 }
 HIGH_ASSERTIONS = {
     "faithfulness", "no_toxicity", "instruction_compliance",
     "tool_selected", "tool_arguments", "tool_call_order",
     "trajectory_completed", "recovered_after_error",
+    "tool_execution_blocked", "tool_execution_succeeded",
 }
 LOW_ASSERTIONS = {"max_length", "min_length", "no_truncation", "max_latency_ms"}
 

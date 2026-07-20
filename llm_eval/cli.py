@@ -13,6 +13,7 @@ from rich.console import Console
 from llm_eval.drift.detector import capture_baseline, check_drift
 from llm_eval.guardrails import load_guardrail_suite, run_guardrail_suite
 from llm_eval.quality import assess_risk, compare_run_records
+from llm_eval.mcp_support import classify_attack_outcome, load_mcp_scenario, run_mcp_scenario
 from llm_eval.reporters.html_reporter import write_html
 from llm_eval.reporters.json_reporter import write_json
 from llm_eval.reporters.terminal import print_run
@@ -30,11 +31,13 @@ drift_app = typer.Typer(help="Drift detection.")
 guardrails_app = typer.Typer(help="Run classified AI guardrail suites.")
 risk_app = typer.Typer(help="Calculate severity-weighted run risk.")
 regression_app = typer.Typer(help="Compare baseline and candidate assertions.")
+mcp_app = typer.Typer(help="Run local MCP agent-security scenarios.")
 app.add_typer(baseline_app, name="baseline")
 app.add_typer(drift_app, name="drift")
 app.add_typer(guardrails_app, name="guardrails")
 app.add_typer(risk_app, name="risk")
 app.add_typer(regression_app, name="regression")
+app.add_typer(mcp_app, name="mcp")
 
 console = Console()
 
@@ -213,6 +216,49 @@ def regression_compare(
         f"missing={len(report.missing_checks)} resolved={len(report.resolved)}"
     )
     if ci and report.has_regressions:
+        raise typer.Exit(code=1)
+
+
+@mcp_app.command("run")
+def mcp_run(
+    scenario_path: str = typer.Argument(..., help="Path to an MCP scenario YAML file."),
+    ci: bool = typer.Option(False, "--ci", help="Exit non-zero when assertions fail."),
+    allow_external_server: bool = typer.Option(
+        False,
+        "--allow-external-server",
+        help="Allow a reviewed scenario to launch a command other than the bundled fixture.",
+    ),
+) -> None:
+    """Execute a deterministic plan through a real MCP stdio session."""
+    import asyncio
+
+    try:
+        scenario = load_mcp_scenario(
+            scenario_path,
+            allow_external_server=allow_external_server,
+        )
+        record = asyncio.run(run_mcp_scenario(scenario))
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Invalid MCP scenario:[/red] {exc}")
+        raise typer.Exit(code=2) from exc
+    save_run(record)
+    print_run(record)
+    risk_report = assess_risk(record)
+    outcome = classify_attack_outcome(scenario, record)
+    console.print(
+        f"Attack outcome: {outcome.status} | attempted={outcome.attempted_tools} "
+        f"completed={outcome.completed_tools}"
+    )
+    console.print(
+        f"Risk: {risk_report.score:.1f}/100 ({risk_report.level}) | "
+        f"failed={risk_report.failed_checks}/{risk_report.total_checks}"
+    )
+    has_failed_assertion = any(
+        not assertion.passed
+        for result in record.results
+        for assertion in result.assertions
+    )
+    if ci and (record.threshold_status != "PASS" or has_failed_assertion):
         raise typer.Exit(code=1)
 
 

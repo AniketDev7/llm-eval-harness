@@ -50,6 +50,7 @@ llm_eval.db
 *.sqlite3
 reports/
 *.log
+*.audit.jsonl
 
 # Node / playground
 playground/node_modules/

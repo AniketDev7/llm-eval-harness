@@ -40,6 +40,10 @@ REGISTRY = {
     "max_tool_calls": agent.eval_max_tool_calls,
     "trajectory_completed": agent.eval_trajectory_completed,
     "recovered_after_error": agent.eval_recovered_after_error,
+    "tool_execution_blocked": agent.eval_tool_execution_blocked,
+    "tool_execution_succeeded": agent.eval_tool_execution_succeeded,
+    "no_sensitive_data_leakage": agent.eval_no_sensitive_data_leakage,
+    "tenant_isolation": agent.eval_tenant_isolation,
 }
 
 
@@ -69,4 +73,8 @@ ASSERTION_CATEGORY = {
     "max_tool_calls": "accuracy",
     "trajectory_completed": "accuracy",
     "recovered_after_error": "accuracy",
+    "tool_execution_blocked": "accuracy",
+    "tool_execution_succeeded": "accuracy",
+    "no_sensitive_data_leakage": "accuracy",
+    "tenant_isolation": "accuracy",
 }
