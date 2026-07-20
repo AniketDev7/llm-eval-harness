@@ -312,7 +312,7 @@ def playground(
     uvicorn.run("llm_eval.api.main:app", host=host, port=port, reload=False)
 
 
-@app.command()
+@app.command("list")
 def list_(
     limit: int = typer.Option(20, "--limit"),
 ) -> None:

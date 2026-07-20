@@ -5,8 +5,6 @@ fileignoreconfig:
   checksum: d59779b4af12ba4f569c5fb17f65780658de715e29115e4a4a95897f1ac97f60
 - filename: playground/package-lock.json
   checksum: d716c14d6af9928c504905fcb335216c06e1789aba3bf5a06ea17858a7151916
-- filename: .github/workflows/weekly-eval.yml
-  checksum: 51eca0d0249d18860018c4d0dd5101c94ac08e81a0ace35ce6edc6f750436d5e
 - filename: llm_eval/adapters/anthropic_adapter.py
   checksum: 7a3932d0bee2d3f2c27285a9c2f5cae04907140deb3146d09c634bffdeec0120
 - filename: llm_eval/evaluators/operational.py
@@ -24,7 +22,7 @@ fileignoreconfig:
 - filename: llm_eval/adapters/openai_adapter.py
   checksum: bc27a97bef80d1a6f6be0e24cb2fb85191344b36ee39ec59d74bfbb5a0614484
 - filename: README.md
-  checksum: 03ee5b81224bfd2c7be86c6efa1e96ed2a0ab9199e1affc071939d49660b206d
+  checksum: b3e481fbce5a854e7e19aa0152ab1606ba1720bc628a40c572107f60bd7606e7
 - filename: tests/test_runner.py
   checksum: 0f17a07919c24cad550b0a1275df4204d5e3c007852b7471343b5f1afaae9e5f
 - filename: llm_eval/api/routes/export.py

@@ -2,7 +2,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-67%2F67%20passing-brightgreen.svg)](#running-tests)
+[![Tests](https://img.shields.io/badge/tests-73%2F73%20passing-brightgreen.svg)](#running-tests)
 
 **Developer-first AI quality gates** for LLM outputs, safety guardrails, tool calls, and agent trajectories across multiple providers.
 
@@ -30,7 +30,7 @@ The same prompt can produce a slightly different response on every run—and bot
 - **Score drift monitoring.** Baseline capture, recent-score trends, and assertion-level baseline comparisons.
 - **Lossless SQLite audit trail.** Stores model identity, provider errors, every repeated completion, tool calls, and agent steps.
 - **Release risk scoring.** Severity-weighted findings convert failed safety checks into a 0–100 risk score.
-- **CI-ready.** `--ci` flag exits non-zero on threshold breach; GitHub Actions workflow runs weekly.
+- **CI-ready.** The `--ci` flag exits non-zero on threshold breaches for use in any CI system.
 
 ---
 
@@ -61,7 +61,8 @@ llm-eval run evals/quickstart.yaml --html
 # CI mode (exits non-zero if score drops below threshold)
 llm-eval run evals/quickstart.yaml --ci
 
-# Launch the web playground
+# Build the playground once, then launch it
+cd playground && npm ci && npm run build && cd ..
 llm-eval playground
 ```
 
@@ -301,6 +302,21 @@ llm-eval playground
 llm-eval playground --port 9000 --no-browser
 ```
 
+### MCP Security Scenarios
+
+The bundled workspace fixture uses fake tenants, documents, secrets, and `.test`
+email addresses. It does not connect to a real business system. Run a secure
+scenario with:
+
+```bash
+llm-eval mcp run examples/vulnerable_workspace_mcp/suites/tenant-isolation.yaml --ci
+```
+
+Secure scenarios should pass and report attempted operations as blocked. The
+`vulnerable-control.yaml` scenario intentionally exits non-zero in CI mode to
+prove that the harness detects successful unsafe behavior. Scenario runs are
+stored in SQLite and can be exported with `llm-eval report --run-id <id>`.
+
 ---
 
 ## Drift and Regression Detection
@@ -317,39 +333,10 @@ provider's training-data distribution or determine why a score changed.
 
 **The 5-step strategy:**
 1. Run `llm-eval baseline save` after your first successful run
-2. Run `llm-eval run --ci` in your weekly GitHub Actions workflow
+2. Run `llm-eval run --ci` on your chosen evaluation cadence
 3. Set thresholds after 4 weeks of baseline data (not immediately)
 4. Check `llm-eval drift check` to see 8-week score trends
 5. Define who gets notified and what they do when an alert fires
-
----
-
-## CI/CD Integration
-
-The weekly eval workflow runs automatically every Monday at 2 AM:
-
-```yaml
-# .github/workflows/weekly-eval.yml
-on:
-  schedule:
-    - cron: '0 2 * * 1'
-  workflow_dispatch:
-
-jobs:
-  weekly-eval:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: {python-version: '3.11'}
-      - run: pip install -e .
-      - run: llm-eval run evals/quickstart.yaml --ci
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-```
-
-The job exits with code 1 if the composite score falls below the `review` threshold, blocking CI automatically.
 
 ---
 
@@ -401,18 +388,18 @@ llm-eval-harness/
 │   ├── quality/           # Risk scoring + assertion regression comparison
 │   ├── runner/            # YAML loader + eval orchestrator
 │   ├── scorer/            # Weighted composite scoring (40/30/20/10)
-│   ├── reporters/         # Terminal (rich) + JSON + HTML (Chart.js)
+│   ├── reporters/         # Terminal, JSON, eval HTML, and pytest HTML reports
 │   ├── drift/             # Baseline score and trend monitoring
 │   ├── storage/           # SQLite lossless audit trail
+│   ├── mcp_support/       # MCP scenario executor + fake workspace fixture
 │   ├── api/               # FastAPI REST API + SPA fallback
 │   └── cli.py             # Typer CLI (llm-eval)
-├── playground/            # React 18 + Vite + Tailwind + shadcn/ui
+├── playground/            # React 18 + Vite + Tailwind UI
 ├── evals/                 # Example YAML suites
 ├── guardrails/            # Six bundled security suites
 ├── examples/
 │   └── vulnerable_workspace_mcp/ # Fake-data MCP server + adversarial scenarios
-├── tests/                 # pytest unit + integration tests
-└── .github/workflows/     # Weekly eval + pytest on push
+└── tests/                 # pytest unit + integration tests
 ```
 
 ---
