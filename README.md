@@ -2,7 +2,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-59%2F59%20passing-brightgreen.svg)](#running-tests)
+[![Tests](https://img.shields.io/badge/tests-67%2F67%20passing-brightgreen.svg)](#running-tests)
 
 **Developer-first AI quality gates** for LLM outputs, safety guardrails, tool calls, and agent trajectories across multiple providers.
 
@@ -16,7 +16,7 @@ The harness brings a QA-native workflow to probabilistic systems: versioned YAML
 
 ## What It Does
 
-The same prompt can produce a slightly different response on every run—and both might be correct. This harness handles that with **24 assertion types**, a weighted quality score, security risk assessment, and baseline regression reports.
+The same prompt can produce a slightly different response on every run—and both might be correct. This harness handles that with **28 assertion types**, a weighted quality score, security risk assessment, and baseline regression reports.
 
 ## Highlights
 
@@ -24,6 +24,7 @@ The same prompt can produce a slightly different response on every run—and bot
 - **Fail-closed quality gates.** Provider and judge outages produce an explicit failed run; infrastructure errors cannot become a false PASS.
 - **First-class guardrails.** Classified suites cover prompt injection, jailbreaks, PII leakage, tool permissions, system-prompt leakage, and role escalation.
 - **Agent trajectory checks.** Validate tool selection, argument schemas, call order, confirmation, recovery, completion, and tool budgets.
+- **Executable MCP security fixture.** A fake enterprise workspace exercises indirect injection, poisoned tool metadata, confirmation bypass, tenant isolation, and exfiltration without touching real systems.
 - **Hybrid faithfulness scoring.** Combines LLM-as-judge with embedding-grounding against source context to catch plausible-sounding hallucinations that fool the judge alone (see [Design Decisions](#design-decisions)).
 - **Schema-driven assertion editor in the playground.** Pick `faithfulness` and the UI auto-renders the right typed inputs (context textarea + threshold) — no JSON memorization.
 - **Score drift monitoring.** Baseline capture, recent-score trends, and assertion-level baseline comparisons.
@@ -134,6 +135,10 @@ Every assertion targets a specific LLM failure mode. The taxonomy below maps eac
 | `max_tool_calls` | Agent stayed within its tool-call budget |
 | `trajectory_completed` | Trace ended in an explicit final/completed step |
 | `recovered_after_error` | Agent recovered after an observed failed step |
+| `tool_execution_blocked` | MCP/tool execution was attempted but denied by the server |
+| `tool_execution_succeeded` | A tool reached successful execution, not merely selection |
+| `no_sensitive_data_leakage` | Configured fake secret markers did not reach observable output |
+| `tenant_isolation` | No configured forbidden-tenant markers reached observable output |
 
 ---
 
@@ -281,6 +286,9 @@ llm-eval guardrails run guardrails/prompt-injection.yaml --ci
 llm-eval risk show <run-id>
 llm-eval regression compare <baseline-run-id> <candidate-run-id> --ci
 
+# Execute a real local MCP stdio scenario
+llm-eval mcp run examples/vulnerable_workspace_mcp/suites/tenant-isolation.yaml --ci
+
 # Reports
 llm-eval report                                    # HTML report from latest run
 llm-eval report --run-id <id> --format json        # JSON export for a specific run
@@ -397,6 +405,8 @@ llm-eval-harness/
 ├── playground/            # React 18 + Vite + Tailwind + shadcn/ui
 ├── evals/                 # Example YAML suites
 ├── guardrails/            # Six bundled security suites
+├── examples/
+│   └── vulnerable_workspace_mcp/ # Fake-data MCP server + adversarial scenarios
 ├── tests/                 # pytest unit + integration tests
 └── .github/workflows/     # Weekly eval + pytest on push
 ```
